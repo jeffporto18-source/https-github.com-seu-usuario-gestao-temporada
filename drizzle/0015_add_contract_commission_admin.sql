@@ -1,0 +1,2 @@
+ALTER TABLE `long_term_contracts` ADD `comissaoPct` decimal(5,2) DEFAULT '0.00' NOT NULL;--> statement-breakpoint
+ALTER TABLE `long_term_contracts` ADD `contractTipoAdministracao` enum('propria','administradora','gestor_curta_temporada') DEFAULT 'propria' NOT NULL;

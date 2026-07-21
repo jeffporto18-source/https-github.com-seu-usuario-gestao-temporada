@@ -1,0 +1,1 @@
+ALTER TABLE `properties` ADD `tipoLocacao` varchar(20) DEFAULT 'curta' NOT NULL;

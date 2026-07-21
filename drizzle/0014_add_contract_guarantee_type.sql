@@ -1,0 +1,1 @@
+ALTER TABLE `long_term_contracts` ADD `tipoGarantia` varchar(100);

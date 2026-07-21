@@ -1,0 +1,1 @@
+ALTER TABLE `clients` ADD `clientFiscalCategory` enum('pj','pf_cbs_ibs','pf_isento') DEFAULT 'pj' NOT NULL;

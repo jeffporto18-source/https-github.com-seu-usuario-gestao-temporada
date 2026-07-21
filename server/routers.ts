@@ -1,0 +1,1162 @@
+import { COOKIE_NAME } from "@shared/const";
+import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { protectedProcedure, publicProcedure, router, adminProcedure } from "./_core/trpc";
+import * as db from "./db";
+import { processarOperacao, emitirNfse, COD_LOCACAO, COD_INTERMEDIACAO } from "./fiscal";
+import { ENV } from "./_core/env";
+
+// Categorias de despesas e investimentos agora são dinâmicas (tabelas expense_categories / investment_categories)
+
+const num = (v: number | string | null) => Number(v ?? 0);
+
+const competenciaSchema = z.string().regex(/^\d{4}-\d{2}$/);
+
+/** Soma meses a uma data "AAAA-MM-DD", retornando "AAAA-MM" da competência resultante */
+function addMonthsToCompetencia(competencia: string, months: number): string {
+  const [y, m] = competencia.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
+/** Data de vencimento: dia informado no mês seguinte à competência (ajustado para o fim do mês se necessário) */
+function calcularVencimento(competencia: string, dia: number): string {
+  const proxima = addMonthsToCompetencia(competencia, 1);
+  const [y, m] = proxima.split("-").map(Number);
+  const ultimoDiaDoMes = new Date(y, m, 0).getDate();
+  const diaAjustado = Math.min(dia, ultimoDiaDoMes);
+  return `${proxima}-${String(diaAjustado).padStart(2, "0")}`;
+}
+
+/** Soma meses a uma data "AAAA-MM-DD", preservando o dia (ajustado para o fim do mês se necessário) */
+function addMonthsToDate(data: string, months: number): string {
+  const [y, m, d] = data.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  const ultimoDiaDoMes = new Date(ny, nm, 0).getDate();
+  const diaAjustado = Math.min(d, ultimoDiaDoMes);
+  return `${ny}-${String(nm).padStart(2, "0")}-${String(diaAjustado).padStart(2, "0")}`;
+}
+
+export const appRouter = router({
+  system: systemRouter,
+  auth: router({
+    me: publicProcedure.query((opts) => {
+      if (!opts.ctx.user) return null;
+      const { passwordHash, ...safeUser } = opts.ctx.user;
+      return safeUser;
+    }),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
+  // Onboarding: classificação obrigatória no primeiro acesso
+  onboarding: router({
+    save: protectedProcedure
+      .input(
+        z.object({
+          userType: z.enum(["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj"]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        await db.updateUserProfile(ctx.user.id, {
+          userType: input.userType,
+        });
+        return { success: true };
+      }),
+  }),
+
+  // ------------------------------------------------------------- profile
+  profile: router({
+    get: protectedProcedure.query(({ ctx }) => {
+      const { passwordHash, ...safeUser } = ctx.user;
+      return safeUser;
+    }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().optional(),
+          razaoSocial: z.string().optional(),
+          cnpj: z.string().optional(),
+          cpfResponsavel: z.string().optional(),
+          nomeResponsavel: z.string().optional(),
+          telefone: z.string().optional(),
+          email: z.string().email().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const data: Record<string, unknown> = {};
+        if (input.name !== undefined) data.name = input.name;
+        if (input.razaoSocial !== undefined) data.razaoSocial = input.razaoSocial;
+        if (input.cnpj !== undefined) data.cnpj = input.cnpj.replace(/\D/g, "");
+        if (input.cpfResponsavel !== undefined) data.cpfResponsavel = input.cpfResponsavel.replace(/\D/g, "");
+        if (input.nomeResponsavel !== undefined) data.nomeResponsavel = input.nomeResponsavel;
+        if (input.telefone !== undefined) data.telefone = input.telefone.replace(/\D/g, "");
+        if (input.email !== undefined) {
+          const newEmail = input.email.toLowerCase().trim();
+          if (newEmail !== ctx.user.email) {
+            // Verificar se o e-mail já está em uso por outro usuário
+            const { getDb } = await import("./db");
+            const database = await getDb();
+            if (database) {
+              const { users } = await import("../drizzle/schema");
+              const existing = await database.select().from(users).where(eq(users.email, newEmail)).limit(1);
+              if (existing.length > 0 && existing[0].id !== ctx.user.id) {
+                throw new Error("Este e-mail já está em uso por outra conta.");
+              }
+            }
+          }
+          data.email = newEmail;
+        }
+        await db.updateUserProfile(ctx.user.id, data as any);
+        return { success: true };
+      }),
+  }),
+
+  // ------------------------------------------------------------- team (gerenciamento de usuários)
+  // Apenas donos do sistema (invitedBy = null) podem gerenciar usuários
+  team: router({
+    list: protectedProcedure.query(({ ctx }) => {
+      if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode gerenciar usuários.");
+      return db.listTeamUsers(ctx.user.id);
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          email: z.string().email(),
+          password: z.string().min(6),
+          telefone: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode adicionar usuários.");
+        await db.createTeamUser({
+          ownerId: ctx.user.id,
+          name: input.name,
+          email: input.email,
+          password: input.password,
+          telefone: input.telefone,
+        });
+        return { success: true };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode remover usuários.");
+        await db.deleteTeamUser(ctx.user.id, input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ------------------------------------------------------------- clients
+  clients: router({
+    list: protectedProcedure.query(({ ctx }) => db.listClients(ctx.user.id)),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getClient(ctx.user.id, input.id)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          tipo: z.enum(["PF", "PJ"]),
+          nome: z.string().min(1),
+          cpfCnpj: z.string().min(1),
+          email: z.string().optional(),
+          telefone: z.string().optional(),
+          fiscalCategory: z.enum(["pj", "pf_cbs_ibs", "pf_isento"]).default("pj"),
+          certificadoA1Nome: z.string().optional(),
+          certificadoA1Validade: z.string().optional(), // "AAAA-MM-DD"
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createClient({
+          ownerId: ctx.user.id,
+          tipo: input.tipo,
+          nome: input.nome,
+          cpfCnpj: input.cpfCnpj,
+          email: input.email || null,
+          telefone: input.telefone || null,
+          fiscalCategory: input.fiscalCategory,
+          certificadoA1Nome: input.certificadoA1Nome || null,
+          certificadoA1Validade: input.certificadoA1Validade ? new Date(input.certificadoA1Validade) : null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          tipo: z.enum(["PF", "PJ"]).optional(),
+          nome: z.string().optional(),
+          cpfCnpj: z.string().optional(),
+          email: z.string().optional(),
+          telefone: z.string().optional(),
+          fiscalCategory: z.enum(["pj", "pf_cbs_ibs", "pf_isento"]).optional(),
+          certificadoA1Nome: z.string().optional(),
+          certificadoA1Validade: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, certificadoA1Validade, ...rest } = input;
+        return db.updateClient(ctx.user.id, id, {
+          ...rest,
+          ...(certificadoA1Validade !== undefined ? { certificadoA1Validade: certificadoA1Validade ? new Date(certificadoA1Validade) : null } : {}),
+        });
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteClient(ctx.user.id, input.id)),
+  }),
+
+  // ---------------------------------------------------------- properties
+  properties: router({
+    list: protectedProcedure.query(({ ctx }) => db.listProperties(ctx.user.id)),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getProperty(ctx.user.id, input.id)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          clientId: z.number().optional(),
+          apelido: z.string().min(1),
+          endereco: z.string().optional(),
+          comissaoPct: z.number().min(0).max(100),
+          custoFaxina: z.number().min(0).default(0),
+          tipoLocacao: z.enum(["curta", "longa"]).default("curta"),
+          imobiliariaId: z.number().optional(),
+          tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).default("propria"),
+          gestorId: z.number().optional(),
+          financiado: z.enum(["sim", "nao"]).default("nao"),
+          tipoFinanciamento: z.enum(["financiamento", "consorcio"]).optional(),
+          valorParcela: z.number().min(0).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createProperty({
+          ownerId: ctx.user.id,
+          clientId: input.clientId ?? null,
+          apelido: input.apelido,
+          endereco: input.endereco || null,
+          comissaoPct: String(input.comissaoPct),
+          custoFaxina: String(input.custoFaxina),
+          tipoLocacao: input.tipoLocacao,
+          imobiliariaId: input.imobiliariaId ?? null,
+          tipoAdministracao: input.tipoAdministracao,
+          gestorId: input.gestorId ?? null,
+          financiado: input.financiado,
+          tipoFinanciamento: input.tipoFinanciamento ?? null,
+          valorParcela: input.valorParcela !== undefined ? String(input.valorParcela) : null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          clientId: z.number().optional(),
+          apelido: z.string().optional(),
+          endereco: z.string().optional(),
+          comissaoPct: z.number().optional(),
+          custoFaxina: z.number().min(0).optional(),
+          tipoLocacao: z.enum(["curta", "longa"]).optional(),
+          imobiliariaId: z.number().nullable().optional(),
+          tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).optional(),
+          gestorId: z.number().nullable().optional(),
+          financiado: z.enum(["sim", "nao"]).optional(),
+          tipoFinanciamento: z.enum(["financiamento", "consorcio"]).nullable().optional(),
+          valorParcela: z.number().min(0).nullable().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, comissaoPct, custoFaxina, valorParcela, ...rest } = input;
+        return db.updateProperty(ctx.user.id, id, {
+          ...rest,
+          ...(comissaoPct !== undefined ? { comissaoPct: String(comissaoPct) } : {}),
+          ...(custoFaxina !== undefined ? { custoFaxina: String(custoFaxina) } : {}),
+          ...(valorParcela !== undefined ? { valorParcela: valorParcela !== null ? String(valorParcela) : null } : {}),
+        });
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteProperty(ctx.user.id, input.id)),
+  }),
+
+  // ------------------------------------------------------------- imobiliarias
+  imobiliarias: router({
+    list: protectedProcedure.query(({ ctx }) => db.listImobiliarias(ctx.user.id)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          nome: z.string().min(1),
+          telefone: z.string().optional(),
+          celular: z.string().optional(),
+          whatsapp: z.string().optional(),
+          email: z.string().optional(),
+          contato: z.string().optional(),
+          endereco: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createImobiliaria({
+          ownerId: ctx.user.id,
+          nome: input.nome,
+          telefone: input.telefone || null,
+          celular: input.celular || null,
+          whatsapp: input.whatsapp || null,
+          email: input.email || null,
+          contato: input.contato || null,
+          endereco: input.endereco || null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          nome: z.string().optional(),
+          telefone: z.string().optional(),
+          celular: z.string().optional(),
+          whatsapp: z.string().optional(),
+          email: z.string().optional(),
+          contato: z.string().optional(),
+          endereco: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, ...rest } = input;
+        return db.updateImobiliaria(ctx.user.id, id, rest);
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteImobiliaria(ctx.user.id, input.id)),
+  }),
+
+  // ------------------------------------------------------------- gestores de temporada (curta_managers)
+  curtaManagers: router({
+    list: protectedProcedure.query(({ ctx }) => db.listCurtaManagers(ctx.user.id)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          nome: z.string().min(1),
+          telefone: z.string().optional(),
+          email: z.string().optional(),
+          contato: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createCurtaManager({
+          ownerId: ctx.user.id,
+          nome: input.nome,
+          telefone: input.telefone || null,
+          email: input.email || null,
+          contato: input.contato || null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          nome: z.string().optional(),
+          telefone: z.string().optional(),
+          email: z.string().optional(),
+          contato: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, ...rest } = input;
+        return db.updateCurtaManager(ctx.user.id, id, rest);
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteCurtaManager(ctx.user.id, input.id)),
+  }),
+
+  // ------------------------------------------------------------- expense categories
+  expenseCategories: router({
+    list: protectedProcedure.query(({ ctx }) => db.seedDefaultCategoriesIfNeeded(ctx.user.id)),
+    create: protectedProcedure
+      .input(z.object({ nome: z.string().min(1) }))
+      .mutation(({ ctx, input }) => db.createExpenseCategory({ ownerId: ctx.user.id, nome: input.nome, ativa: 1 })),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
+      .mutation(({ ctx, input }) => db.updateExpenseCategory(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteExpenseCategory(ctx.user.id, input.id)),
+  }),
+
+  // ------------------------------------------------------------- expenses
+  expenses: router({
+    list: protectedProcedure
+      .input(z.object({ propertyId: z.number().optional(), competencia: z.string().optional() }))
+      .query(({ ctx, input }) => db.listExpenses(ctx.user.id, input.propertyId, input.competencia)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          propertyId: z.number(),
+          categoria: z.string().min(1),
+          valor: z.number().positive(),
+          competencia: z.string().regex(/^\d{4}-\d{2}$/),
+          descricao: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createExpense({
+          ownerId: ctx.user.id,
+          propertyId: input.propertyId,
+          categoria: input.categoria,
+          valor: String(input.valor),
+          competencia: input.competencia,
+          descricao: input.descricao || null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          propertyId: z.number().optional(),
+          categoria: z.string().optional(),
+          valor: z.number().positive().optional(),
+          competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+          descricao: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, valor, ...rest } = input;
+        return db.updateExpense(ctx.user.id, id, {
+          ...rest,
+          ...(valor !== undefined ? { valor: String(valor) } : {}),
+        });
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteExpense(ctx.user.id, input.id)),
+  }),
+
+  // ------------------------------------------------------- investment categories
+  investmentCategories: router({
+    list: protectedProcedure.query(({ ctx }) => db.seedDefaultInvestmentCategoriesIfNeeded(ctx.user.id)),
+    create: protectedProcedure
+      .input(z.object({ nome: z.string().min(1) }))
+      .mutation(({ ctx, input }) => db.createInvestmentCategory({ ownerId: ctx.user.id, nome: input.nome, ativa: 1 })),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
+      .mutation(({ ctx, input }) => db.updateInvestmentCategory(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInvestmentCategory(ctx.user.id, input.id)),
+  }),
+
+  // ---------------------------------------------------------- investments
+  investments: router({
+    list: protectedProcedure
+      .input(z.object({ propertyId: z.number().optional(), competencia: z.string().optional() }))
+      .query(({ ctx, input }) => db.listInvestments(ctx.user.id, input.propertyId, input.competencia)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          propertyId: z.number(),
+          categoria: z.string().min(1),
+          valor: z.number().positive(),
+          competencia: z.string().regex(/^\d{4}-\d{2}$/),
+          descricao: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createInvestment({
+          ownerId: ctx.user.id,
+          propertyId: input.propertyId,
+          categoria: input.categoria,
+          valor: String(input.valor),
+          competencia: input.competencia,
+          descricao: input.descricao || null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          propertyId: z.number().optional(),
+          categoria: z.string().min(1).optional(),
+          valor: z.number().positive().optional(),
+          competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+          descricao: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, valor, ...rest } = input;
+        return db.updateInvestment(ctx.user.id, id, {
+          ...rest,
+          ...(valor !== undefined ? { valor: String(valor) } : {}),
+        });
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInvestment(ctx.user.id, input.id)),
+  }),
+
+  // --------------------------------------------------------- guarantee types
+  guaranteeTypes: router({
+    list: protectedProcedure.query(({ ctx }) => db.seedDefaultGuaranteeTypesIfNeeded(ctx.user.id)),
+    create: protectedProcedure
+      .input(z.object({ nome: z.string().min(1) }))
+      .mutation(({ ctx, input }) => db.createGuaranteeType({ ownerId: ctx.user.id, nome: input.nome, ativa: 1 })),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
+      .mutation(({ ctx, input }) => db.updateGuaranteeType(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteGuaranteeType(ctx.user.id, input.id)),
+  }),
+
+  // -------------------------------------------------------- inventory items
+  inventoryItems: router({
+    list: protectedProcedure
+      .input(z.object({ propertyId: z.number() }))
+      .query(({ ctx, input }) => db.listInventoryItems(ctx.user.id, input.propertyId)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          propertyId: z.number(),
+          nome: z.string().min(1),
+          quantidade: z.number().int().positive().default(1),
+          descricao: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createInventoryItem({
+          ownerId: ctx.user.id,
+          propertyId: input.propertyId,
+          nome: input.nome,
+          quantidade: input.quantidade,
+          descricao: input.descricao || null,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          nome: z.string().optional(),
+          quantidade: z.number().int().positive().optional(),
+          descricao: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, ...rest } = input;
+        return db.updateInventoryItem(ctx.user.id, id, rest);
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInventoryItem(ctx.user.id, input.id)),
+  }),
+
+  // -------------------------------------------------- long term contracts (aluguel de longa duração)
+  longTermContracts: router({
+    list: protectedProcedure
+      .input(z.object({ propertyId: z.number().optional() }))
+      .query(({ ctx, input }) => db.listLongTermContracts(ctx.user.id, input.propertyId)),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getLongTermContract(ctx.user.id, input.id)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          propertyId: z.number(),
+          dataInicio: z.string(),
+          indiceCorrecao: z.string().default("IGPM"),
+          nomeInquilino: z.string().optional(),
+          cpfCnpjInquilino: z.string().optional(),
+          contatoInquilino: z.string().optional(),
+          telefoneInquilino: z.string().optional(),
+          celularInquilino: z.string().optional(),
+          whatsappInquilino: z.string().optional(),
+          emailInquilino: z.string().optional(),
+          carenciaInicio: z.string().optional(),
+          carenciaFim: z.string().optional(),
+          prazoMeses: z.number().int().positive().default(12),
+          diaVencimentoAluguel: z.number().int().min(1).max(31).default(10),
+          tipoGarantia: z.string().optional(),
+          comissaoPct: z.number().min(0).max(100).default(0),
+          tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).default("propria"),
+          valorAluguel: z.number().positive(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { valorAluguel, ...rest } = input;
+
+        // Fim do contrato: início + prazo em meses. Reajuste: sempre a cada 12 meses a partir do início.
+        const dataFim = addMonthsToDate(rest.dataInicio, rest.prazoMeses);
+        const dataReajuste = addMonthsToDate(rest.dataInicio, 12);
+
+        const contractId = await db.createLongTermContract({
+          ownerId: ctx.user.id,
+          propertyId: rest.propertyId,
+          dataInicio: rest.dataInicio,
+          dataFim,
+          dataReajuste,
+          indiceCorrecao: rest.indiceCorrecao,
+          nomeInquilino: rest.nomeInquilino || null,
+          cpfCnpjInquilino: rest.cpfCnpjInquilino || null,
+          contatoInquilino: rest.contatoInquilino || null,
+          telefoneInquilino: rest.telefoneInquilino || null,
+          celularInquilino: rest.celularInquilino || null,
+          whatsappInquilino: rest.whatsappInquilino || null,
+          emailInquilino: rest.emailInquilino || null,
+          carenciaInicio: rest.carenciaInicio || null,
+          carenciaFim: rest.carenciaFim || null,
+          prazoMeses: rest.prazoMeses,
+          diaVencimentoAluguel: rest.diaVencimentoAluguel,
+          tipoGarantia: rest.tipoGarantia || null,
+          comissaoPct: String(rest.comissaoPct),
+          tipoAdministracao: rest.tipoAdministracao,
+        });
+
+        // Primeiro aluguel devido: mês seguinte ao fim da carência (aluguel é pago postecipado).
+        // Sem carência, cobra a partir do próprio mês de início.
+        const inicioCobranca = rest.carenciaFim
+          ? addMonthsToCompetencia(rest.carenciaFim.slice(0, 7), 1)
+          : rest.dataInicio.slice(0, 7);
+        for (let i = 0; i < rest.prazoMeses; i++) {
+          const competencia = addMonthsToCompetencia(inicioCobranca, i);
+          // O mês em que o contrato termina não gera cobrança (o contrato já encerrou nesse dia).
+          if (competencia >= dataFim.slice(0, 7)) break;
+          await db.createContractRentCharge({
+            ownerId: ctx.user.id,
+            contractId,
+            propertyId: rest.propertyId,
+            valor: String(valorAluguel),
+            competencia,
+            dataVencimento: calcularVencimento(competencia, rest.diaVencimentoAluguel),
+            status: "pendente",
+          });
+        }
+
+        return { id: contractId };
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          dataInicio: z.string().optional(),
+          dataFim: z.string().optional(),
+          dataReajuste: z.string().optional(),
+          indiceCorrecao: z.string().optional(),
+          nomeInquilino: z.string().optional(),
+          cpfCnpjInquilino: z.string().optional(),
+          contatoInquilino: z.string().optional(),
+          telefoneInquilino: z.string().optional(),
+          celularInquilino: z.string().optional(),
+          whatsappInquilino: z.string().optional(),
+          emailInquilino: z.string().optional(),
+          carenciaInicio: z.string().optional(),
+          carenciaFim: z.string().optional(),
+          prazoMeses: z.number().int().positive().optional(),
+          diaVencimentoAluguel: z.number().int().min(1).max(31).optional(),
+          tipoGarantia: z.string().optional(),
+          comissaoPct: z.number().min(0).max(100).optional(),
+          tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, dataInicio, dataFim, dataReajuste, carenciaInicio, carenciaFim, comissaoPct, ...rest } = input;
+        return db.updateLongTermContract(ctx.user.id, id, {
+          ...rest,
+          ...(comissaoPct !== undefined ? { comissaoPct: String(comissaoPct) } : {}),
+          ...(dataInicio !== undefined ? { dataInicio } : {}),
+          ...(dataFim !== undefined ? { dataFim } : {}),
+          ...(dataReajuste !== undefined ? { dataReajuste } : {}),
+          ...(carenciaInicio !== undefined ? { carenciaInicio } : {}),
+          ...(carenciaFim !== undefined ? { carenciaFim } : {}),
+        });
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const parcelas = await db.listContractRentCharges(ctx.user.id, input.id);
+        for (const p of parcelas) {
+          if (p.descontoExpenseId) await db.deleteExpense(ctx.user.id, p.descontoExpenseId);
+        }
+        return db.deleteLongTermContract(ctx.user.id, input.id);
+      }),
+
+    // ---- recebíveis (parcelas) do contrato
+    charges: protectedProcedure
+      .input(z.object({ contractId: z.number().optional() }))
+      .query(({ ctx, input }) => db.listContractRentCharges(ctx.user.id, input.contractId)),
+    addCharge: protectedProcedure
+      .input(
+        z.object({
+          contractId: z.number(),
+          propertyId: z.number(),
+          valor: z.number().positive(),
+          competencia: competenciaSchema,
+          dataVencimento: z.string(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createContractRentCharge({
+          ownerId: ctx.user.id,
+          contractId: input.contractId,
+          propertyId: input.propertyId,
+          valor: String(input.valor),
+          competencia: input.competencia,
+          dataVencimento: input.dataVencimento,
+          status: "pendente",
+        }),
+      ),
+    markReceived: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          dataRecebimento: z.string().optional(),
+          multaJuros: z.number().min(0).default(0),
+          desconto: z.number().min(0).default(0),
+          descontoCategoriaId: z.number().optional(),
+          descontoDescricao: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const charge = await db.getContractRentCharge(ctx.user.id, input.id);
+        if (!charge) throw new Error("Parcela não encontrada.");
+
+        // Se já havia um desconto anterior vinculado (ex.: reenviando o formulário), remove a despesa antiga primeiro.
+        if (charge.descontoExpenseId) {
+          await db.deleteExpense(ctx.user.id, charge.descontoExpenseId);
+        }
+
+        let descontoExpenseId: number | null = null;
+        if (input.desconto > 0) {
+          // Categoria é opcional: se a pessoa descreveu o motivo, não precisa classificar por categoria (e vice-versa).
+          let categoria: { id: number; nome: string } | null = null;
+          if (input.descontoCategoriaId) {
+            const categorias = await db.listExpenseCategories(ctx.user.id);
+            categoria = categorias.find((c) => c.id === input.descontoCategoriaId) ?? null;
+            if (!categoria) throw new Error("Categoria de despesa não encontrada.");
+          }
+          descontoExpenseId = await db.createExpense({
+            ownerId: ctx.user.id,
+            propertyId: charge.propertyId,
+            categoryId: categoria?.id ?? null,
+            categoria: categoria?.nome ?? null,
+            valor: String(input.desconto),
+            competencia: charge.competencia,
+            descricao: input.descontoDescricao?.trim() || `Desconto concedido — aluguel ${charge.competencia}`,
+          });
+        }
+
+        const valorRecebido = num(charge.valor) + input.multaJuros - input.desconto;
+
+        await db.updateContractRentCharge(ctx.user.id, input.id, {
+          status: "recebido",
+          dataRecebimento: input.dataRecebimento || new Date().toISOString().slice(0, 10),
+          multaJuros: String(input.multaJuros),
+          desconto: String(input.desconto),
+          valorRecebido: String(valorRecebido),
+          descontoExpenseId,
+        });
+
+        return { success: true };
+      }),
+    markPending: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const charge = await db.getContractRentCharge(ctx.user.id, input.id);
+        if (charge?.descontoExpenseId) {
+          await db.deleteExpense(ctx.user.id, charge.descontoExpenseId);
+        }
+        return db.updateContractRentCharge(ctx.user.id, input.id, {
+          status: "pendente",
+          dataRecebimento: null,
+          multaJuros: "0.00",
+          desconto: "0.00",
+          valorRecebido: null,
+          descontoExpenseId: null,
+        });
+      }),
+    updateCharge: protectedProcedure
+      .input(z.object({ id: z.number(), valor: z.number().positive().optional(), dataVencimento: z.string().optional() }))
+      .mutation(({ ctx, input }) => {
+        const { id, valor, dataVencimento } = input;
+        return db.updateContractRentCharge(ctx.user.id, id, {
+          ...(valor !== undefined ? { valor: String(valor) } : {}),
+          ...(dataVencimento !== undefined ? { dataVencimento } : {}),
+        });
+      }),
+    deleteCharge: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const charge = await db.getContractRentCharge(ctx.user.id, input.id);
+        if (charge?.descontoExpenseId) {
+          await db.deleteExpense(ctx.user.id, charge.descontoExpenseId);
+        }
+        return db.deleteContractRentCharge(ctx.user.id, input.id);
+      }),
+  }),
+
+  // --------------------------------------------------------- reservations
+  reservations: router({
+    list: protectedProcedure
+      .input(z.object({ propertyId: z.number().optional(), competencia: z.string().optional() }))
+      .query(({ ctx, input }) => db.listReservations(ctx.user.id, input.propertyId, input.competencia)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          propertyId: z.number(),
+          codigo: z.string().min(1),
+          valorBruto: z.number().positive(),
+          taxaLimpeza: z.number().min(0),
+          taxaAirbnbPct: z.number().min(0).max(100).default(4),
+          checkin: z.string(),
+          checkout: z.string(),
+          noites: z.number().int().positive(),
+          faxinasUtilizadas: z.number().int().min(0).default(1),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        await db.createReservation({
+          ownerId: ctx.user.id,
+          propertyId: input.propertyId,
+          codigo: input.codigo,
+          valorBruto: String(input.valorBruto),
+          taxaLimpeza: String(input.taxaLimpeza),
+          taxaAirbnbPct: String(input.taxaAirbnbPct),
+          checkin: new Date(input.checkin),
+          checkout: new Date(input.checkout),
+          noites: input.noites,
+          faxinasUtilizadas: input.faxinasUtilizadas,
+          competencia: input.checkin.slice(0, 7),
+        });
+
+        // Gerar despesa automática de faxina se houver custo configurado no imóvel
+        if (input.faxinasUtilizadas > 0) {
+          const prop = await db.getProperty(ctx.user.id, input.propertyId);
+          const custoUnit = Number(prop?.custoFaxina ?? 0);
+          if (custoUnit > 0) {
+            const totalFaxina = custoUnit * input.faxinasUtilizadas;
+            // Precisamos do ID da reserva recém-criada para vincular
+            const allRes = await db.listReservations(ctx.user.id, input.propertyId, input.checkin.slice(0, 7));
+            const reservaCriada = allRes.find(r => r.codigo === input.codigo);
+            await db.createExpense({
+              ownerId: ctx.user.id,
+              propertyId: input.propertyId,
+              categoria: "faxineira",
+              valor: String(totalFaxina),
+              competencia: input.checkin.slice(0, 7),
+              descricao: `Faxina automática — Reserva ${input.codigo} (${input.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
+              reservationId: reservaCriada?.id ?? null,
+            });
+          }
+        }
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          codigo: z.string().optional(),
+          valorBruto: z.number().positive().optional(),
+          taxaLimpeza: z.number().min(0).optional(),
+          taxaAirbnbPct: z.number().min(0).max(100).optional(),
+          checkin: z.string().optional(),
+          checkout: z.string().optional(),
+          noites: z.number().int().positive().optional(),
+          faxinasUtilizadas: z.number().int().min(0).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { id, valorBruto, taxaLimpeza, taxaAirbnbPct, checkin, checkout, faxinasUtilizadas, ...rest } = input;
+
+        // Verificar se há NFS-e emitida — bloquear edição de campos fiscais e de período
+        const notasExistentes = await db.listInvoicesByReservation(ctx.user.id, id);
+        if (notasExistentes.length > 0) {
+          const camposBloqueados = valorBruto !== undefined || taxaLimpeza !== undefined || taxaAirbnbPct !== undefined || checkin !== undefined || checkout !== undefined || rest.codigo !== undefined;
+          if (camposBloqueados) {
+            throw new Error("Não é possível alterar valores, período ou código de uma reserva com NFS-e já emitida. Cancele as notas primeiro.");
+          }
+        }
+
+        await db.updateReservation(ctx.user.id, id, {
+          ...rest,
+          ...(valorBruto !== undefined ? { valorBruto: String(valorBruto) } : {}),
+          ...(taxaLimpeza !== undefined ? { taxaLimpeza: String(taxaLimpeza) } : {}),
+          ...(taxaAirbnbPct !== undefined ? { taxaAirbnbPct: String(taxaAirbnbPct) } : {}),
+          ...(checkin !== undefined ? { checkin: new Date(checkin), competencia: checkin.slice(0, 7) } : {}),
+          ...(checkout !== undefined ? { checkout: new Date(checkout) } : {}),
+          ...(faxinasUtilizadas !== undefined ? { faxinasUtilizadas } : {}),
+        });
+
+        // Reconciliar despesa automática de faxina se faxinasUtilizadas mudou
+        if (faxinasUtilizadas !== undefined) {
+          const reserva = await db.getReservation(ctx.user.id, id);
+          if (reserva) {
+            // Remover despesa antiga vinculada usando helper de delete por reservationId
+            await db.deleteExpensesByReservation(ctx.user.id, id);
+            // Recriar se faxinas > 0
+            if (faxinasUtilizadas > 0) {
+              const prop = await db.getProperty(ctx.user.id, reserva.propertyId);
+              const custoUnit = Number(prop?.custoFaxina ?? 0);
+              if (custoUnit > 0) {
+                await db.createExpense({
+                  ownerId: ctx.user.id,
+                  propertyId: reserva.propertyId,
+                  categoria: "faxineira",
+                  valor: String(custoUnit * faxinasUtilizadas),
+                  competencia: reserva.competencia,
+                  descricao: `Faxina automática — Reserva ${reserva.codigo} (${faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
+                  reservationId: id,
+                });
+              }
+            }
+          }
+        }
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteReservation(ctx.user.id, input.id)),
+
+    // Importação de CSV do Airbnb
+    importCsv: protectedProcedure
+      .input(
+        z.object({
+          propertyId: z.number(),
+          rows: z.array(
+            z.object({
+              codigo: z.string(),
+              valorBruto: z.number(),
+              taxaLimpeza: z.number(),
+              taxaAirbnbPct: z.number().default(4),
+              checkin: z.string(),
+              checkout: z.string(),
+              noites: z.number().int().positive(),
+              faxinasUtilizadas: z.number().int().min(0).default(1),
+            }),
+          ),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const prop = await db.getProperty(ctx.user.id, input.propertyId);
+        if (!prop) throw new Error("Imóvel não encontrado");
+        const custoUnit = Number(prop.custoFaxina ?? 0);
+        let importadas = 0;
+
+        for (const row of input.rows) {
+          await db.createReservation({
+            ownerId: ctx.user.id,
+            propertyId: input.propertyId,
+            codigo: row.codigo,
+            valorBruto: String(row.valorBruto),
+            taxaLimpeza: String(row.taxaLimpeza),
+            taxaAirbnbPct: String(row.taxaAirbnbPct),
+            checkin: new Date(row.checkin),
+            checkout: new Date(row.checkout),
+            noites: row.noites,
+            faxinasUtilizadas: row.faxinasUtilizadas,
+            competencia: row.checkin.slice(0, 7),
+          });
+
+          // Gerar despesa de faxina automática
+          if (row.faxinasUtilizadas > 0 && custoUnit > 0) {
+            const totalFaxina = custoUnit * row.faxinasUtilizadas;
+            const allRes = await db.listReservations(ctx.user.id, input.propertyId, row.checkin.slice(0, 7));
+            const reservaCriada = allRes.find(r => r.codigo === row.codigo);
+            await db.createExpense({
+              ownerId: ctx.user.id,
+              propertyId: input.propertyId,
+              categoria: "faxineira",
+              valor: String(totalFaxina),
+              competencia: row.checkin.slice(0, 7),
+              descricao: `Faxina automática — Reserva ${row.codigo} (${row.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
+              reservationId: reservaCriada?.id ?? null,
+            });
+          }
+          importadas++;
+        }
+
+        return { importadas };
+      }),
+
+    // Nota fiscal por reserva
+    invoices: protectedProcedure
+      .input(z.object({ reservationId: z.number() }))
+      .query(({ ctx, input }) => db.listInvoicesByReservation(ctx.user.id, input.reservationId)),
+
+    // Notas por imóvel (para o extrato de repasse), filtradas por competência
+    invoicesByProperty: protectedProcedure
+      .input(z.object({ propertyId: z.number(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
+        const ids = new Set(reservas.map((r) => r.id));
+        const notas = await db.listInvoicesByProperty(ctx.user.id, input.propertyId);
+        return notas.filter((n) => n.reservationId != null && ids.has(n.reservationId));
+      }),
+
+    emitir: protectedProcedure
+      .input(z.object({ reservationId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const reserva = await db.getReservation(ctx.user.id, input.reservationId);
+        if (!reserva) throw new Error("Reserva não encontrada");
+        const prop = await db.getProperty(ctx.user.id, reserva.propertyId);
+        if (!prop) throw new Error("Imóvel não encontrado");
+        const cliente = prop.clientId ? await db.getClient(ctx.user.id, prop.clientId) : null;
+        if (!cliente && prop.clientId) throw new Error("Cliente não encontrado");
+
+        // limpa notas anteriores desta reserva (idempotência simples)
+        await db.deleteInvoicesByReservation(ctx.user.id, input.reservationId);
+
+        const resultado = processarOperacao({
+          reservaCodigo: reserva.codigo,
+          propriedadeApelido: prop.apelido,
+          checkin: new Date(reserva.checkin).toISOString().slice(0, 10),
+          checkout: new Date(reserva.checkout).toISOString().slice(0, 10),
+          noites: reserva.noites,
+          valorBruto: num(reserva.valorBruto),
+          taxaLimpeza: num(reserva.taxaLimpeza),
+          taxaAirbnbPct: num(reserva.taxaAirbnbPct),
+          comissaoPct: num(prop.comissaoPct),
+          admin: {
+            cnpj: "00.000.000/0001-00",
+            razaoSocial: ctx.user.name || "Administradora",
+          },
+          proprietario: cliente
+            ? { nome: cliente.nome, cpfCnpj: cliente.cpfCnpj, tipo: cliente.tipo }
+            : { nome: ctx.user.name || "Holding", cpfCnpj: "", tipo: "PJ" as const },
+          fiscalCategory: (cliente?.fiscalCategory as "pj" | "pf_cbs_ibs" | "pf_isento") ?? "pj",
+        });
+
+        // Emite nota de comissão (sempre)
+        const respComissao = await emitirNfse(resultado.notaComissao);
+        await db.createInvoice({
+          ownerId: ctx.user.id,
+          reservationId: reserva.id,
+          propertyId: prop.id,
+          tipo: "comissao",
+          codigoServico: COD_INTERMEDIACAO,
+          valorServicos: String(resultado.comissaoAdmin),
+          status: "autorizada",
+          chaveAcesso: respComissao.chaveAcesso,
+          numeroNfse: respComissao.numeroNfse,
+          payloadJson: JSON.stringify(resultado.notaComissao),
+          respostaJson: JSON.stringify(respComissao),
+        });
+
+        // Nota de locação: apenas se não for PF isento
+        let respLocacao = null;
+        if (resultado.gerarNotaLocacao) {
+          respLocacao = await emitirNfse(resultado.notaLocacao);
+          await db.createInvoice({
+            ownerId: ctx.user.id,
+            reservationId: reserva.id,
+            propertyId: prop.id,
+            tipo: "locacao",
+            codigoServico: COD_LOCACAO,
+            valorServicos: String(resultado.receitaLocacao),
+            baseCalculo: String(resultado.baseTributavelLocacao),
+            cbs: String(resultado.cbsLocacao),
+            ibs: String(resultado.ibsLocacao),
+            status: "autorizada",
+            chaveAcesso: respLocacao.chaveAcesso,
+            numeroNfse: respLocacao.numeroNfse,
+            payloadJson: JSON.stringify(resultado.notaLocacao),
+            respostaJson: JSON.stringify(respLocacao),
+          });
+        }
+
+        return { resultado, respComissao, respLocacao };
+      }),
+  }),
+
+  // --------------------------------------------------------------- DRE
+  dre: router({
+    porUnidade: protectedProcedure
+      .input(z.object({ propertyId: z.number(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const prop = await db.getProperty(ctx.user.id, input.propertyId);
+        if (!prop) throw new Error("Imóvel não encontrado");
+        const cliente = prop.clientId ? await db.getClient(ctx.user.id, prop.clientId) : null;
+
+        const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
+        const despesas = await db.listExpenses(ctx.user.id, input.propertyId, input.competencia);
+        const investimentos = await db.listInvestments(ctx.user.id, input.propertyId, input.competencia);
+
+        let receitaBruta = 0;
+        let taxaAirbnb = 0;
+        let comissao = 0;
+        let cbs = 0;
+        let ibs = 0;
+        let liquidoProp = 0;
+        const comissaoPct = num(prop.comissaoPct);
+
+        for (const r of reservas) {
+          const res = processarOperacao({
+            reservaCodigo: r.codigo,
+            propriedadeApelido: prop.apelido,
+            checkin: new Date(r.checkin).toISOString().slice(0, 10),
+            checkout: new Date(r.checkout).toISOString().slice(0, 10),
+            noites: r.noites,
+            valorBruto: num(r.valorBruto),
+            taxaLimpeza: num(r.taxaLimpeza),
+            taxaAirbnbPct: num(r.taxaAirbnbPct),
+            comissaoPct,
+            admin: { cnpj: "", razaoSocial: "" },
+            proprietario: { nome: cliente?.nome || "", cpfCnpj: cliente?.cpfCnpj || "", tipo: cliente?.tipo || "PF" },
+            fiscalCategory: (cliente?.fiscalCategory as "pj" | "pf_cbs_ibs" | "pf_isento") ?? "pj",
+          });
+          receitaBruta += res.receitaLocacao;
+          taxaAirbnb += res.taxaAirbnb;
+          comissao += res.comissaoAdmin;
+          cbs += res.cbsLocacao;
+          ibs += res.ibsLocacao;
+          liquidoProp += res.liquidoProprietario;
+        }
+
+        const totalDespesas = despesas.reduce((s, e) => s + num(e.valor), 0);
+        const totalInvestimentos = investimentos.reduce((s, i) => s + num(i.valor), 0);
+        const resultadoProprietario = liquidoProp - totalDespesas - totalInvestimentos;
+
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+        return {
+          propriedade: prop,
+          cliente,
+          competencia: input.competencia,
+          totalReservas: reservas.length,
+          receitaBruta: round2(receitaBruta),
+          taxaAirbnb: round2(taxaAirbnb),
+          comissao: round2(comissao),
+          cbs: round2(cbs),
+          ibs: round2(ibs),
+          repasseBruto: round2(liquidoProp),
+          despesas: despesas.map((e) => ({ ...e, valor: num(e.valor) })),
+          totalDespesas: round2(totalDespesas),
+          investimentos: investimentos.map((i) => ({ ...i, valor: num(i.valor) })),
+          totalInvestimentos: round2(totalInvestimentos),
+          resultadoProprietario: round2(resultadoProprietario),
+        };
+      }),
+  }),
+
+  // --------------------------------------------------------- dashboard
+  dashboard: router({
+    overview: protectedProcedure
+      .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const clientes = await db.listClients(ctx.user.id);
+        const props = await db.listProperties(ctx.user.id);
+        const reservas = await db.listReservations(ctx.user.id, undefined, input.competencia);
+
+        const propMap = new Map(props.map((p) => [p.id, p]));
+        let comissaoMes = 0;
+        let receitaMes = 0;
+        for (const r of reservas) {
+          const p = propMap.get(r.propertyId);
+          const comissaoPct = p ? num(p.comissaoPct) : 0;
+          const receita = num(r.valorBruto) + num(r.taxaLimpeza);
+          receitaMes += receita;
+          comissaoMes += receita * (comissaoPct / 100);
+        }
+
+        // alertas de vencimento de certificado A1 (próximos 60 dias ou vencidos)
+        const hoje = new Date();
+        const limite = new Date();
+        limite.setDate(limite.getDate() + 60);
+        const alertasCertificado = clientes
+          .filter((c) => c.certificadoA1Validade)
+          .map((c) => {
+            const validade = new Date(c.certificadoA1Validade as unknown as string);
+            const diasRestantes = Math.ceil((validade.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+            return { clienteId: c.id, nome: c.nome, validade: validade.toISOString().slice(0, 10), diasRestantes };
+          })
+          .filter((a) => a.diasRestantes <= 60)
+          .sort((a, b) => a.diasRestantes - b.diasRestantes);
+
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+        return {
+          totalClientes: clientes.length,
+          totalImoveis: props.length,
+          totalReservasMes: reservas.length,
+          receitaMes: round2(receitaMes),
+          comissaoMes: round2(comissaoMes),
+          alertasCertificado,
+        };
+      }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;

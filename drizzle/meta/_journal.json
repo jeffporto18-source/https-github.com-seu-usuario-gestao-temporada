@@ -1,0 +1,125 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1782935734367,
+      "tag": "0000_fixed_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1782935910569,
+      "tag": "0001_wise_princess_powerful",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783182529246,
+      "tag": "0002_fixed_dust",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1783182750610,
+      "tag": "0003_blushing_riptide",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1783197405190,
+      "tag": "0004_fresh_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1783198891502,
+      "tag": "0005_superb_mattie_franklin",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1783200270182,
+      "tag": "0006_small_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1783202224152,
+      "tag": "0007_lumpy_doorman",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1783204379235,
+      "tag": "0008_lying_zombie",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1783207005959,
+      "tag": "0009_public_ben_urich",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1783371635437,
+      "tag": "0010_magenta_lilith",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1783383423259,
+      "tag": "0011_square_the_professor",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1783384640377,
+      "tag": "0012_open_professor_monster",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1784398020440,
+      "tag": "0013_add_long_term_rental_entities",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1784488773822,
+      "tag": "0014_add_contract_guarantee_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1784489634369,
+      "tag": "0015_add_contract_commission_admin",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1784493069885,
+      "tag": "0016_add_charge_multa_desconto",
+      "breakpoints": true
+    }
+  ]
+}

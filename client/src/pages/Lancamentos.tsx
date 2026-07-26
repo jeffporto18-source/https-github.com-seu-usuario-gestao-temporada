@@ -21,18 +21,20 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Pencil, Settings, CalendarClock, Receipt, Sparkles } from "lucide-react";
+import { Plus, Trash2, Pencil, Settings, CalendarClock, Receipt, Sparkles, TrendingUp, PiggyBank } from "lucide-react";
 import { brl, competenciaAtual } from "@/lib/format";
 import { PageHeader, EmptyState } from "./Clientes";
 import { UnitPeriodFilter } from "@/components/UnitPeriodFilter";
 import { Link } from "wouter";
 
-type Grupo = "despesa_fixa" | "despesa_variavel" | "investimento";
+type Grupo = "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital";
 
 const GRUPO_INFO: Record<Grupo, { label: string; icon: typeof Receipt; badgeClass: string }> = {
   despesa_fixa: { label: "Despesa Fixa", icon: CalendarClock, badgeClass: "border-amber-300 text-amber-700" },
   despesa_variavel: { label: "Despesa Variável", icon: Receipt, badgeClass: "border-blue-300 text-blue-700" },
   investimento: { label: "Investimento", icon: Sparkles, badgeClass: "border-primary/40 text-primary" },
+  receita: { label: "Receita", icon: TrendingUp, badgeClass: "border-emerald-300 text-emerald-700" },
+  aporte_capital: { label: "Aporte de Capital", icon: PiggyBank, badgeClass: "border-violet-300 text-violet-700" },
 };
 
 interface LancamentoForm {
@@ -40,12 +42,9 @@ interface LancamentoForm {
   chartAccountId: string;
   valor: string;
   descricao: string;
-  competencia: string;
 }
 
-const emptyForm = (competencia: string): LancamentoForm => ({ grupo: "despesa_variavel", chartAccountId: "", valor: "", descricao: "", competencia });
-
-type Origem = "expense" | "investment";
+const emptyForm: LancamentoForm = { grupo: "despesa_variavel", chartAccountId: "", valor: "", descricao: "" };
 
 export default function Lancamentos() {
   const utils = trpc.useUtils();
@@ -53,95 +52,62 @@ export default function Lancamentos() {
   const [propertyId, setPropertyId] = useState<string>("");
   const [competencia, setCompetencia] = useState<string>(competenciaAtual());
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<{ id: number; origem: Origem } | null>(null);
-  const [form, setForm] = useState<LancamentoForm>(emptyForm(competencia));
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<LancamentoForm>(emptyForm);
 
   const enabled = !!propertyId;
 
-  const { data: despesas, isLoading: loadingDespesas } = trpc.expenses.list.useQuery(
-    { propertyId: Number(propertyId), competencia },
-    { enabled },
-  );
-  const { data: investimentos, isLoading: loadingInvestimentos } = trpc.investments.list.useQuery(
+  const { data: lancamentosRaw, isLoading } = trpc.ledgerEntries.list.useQuery(
     { propertyId: Number(propertyId), competencia },
     { enabled },
   );
   const { data: contas } = trpc.chartAccounts.list.useQuery({ grupo: form.grupo });
 
-  const isLoading = loadingDespesas || loadingInvestimentos;
-
-  const lancamentos = useMemo(() => {
-    const dItems = (despesas ?? []).map((e) => ({
-      id: e.id,
-      origem: "expense" as Origem,
-      grupo: (e.tipoDespesa === "fixa" ? "despesa_fixa" : "despesa_variavel") as Grupo,
-      categoria: e.categoria || "—",
-      valor: Number(e.valor),
-      descricao: e.descricao,
-      createdAt: e.createdAt,
-    }));
-    const iItems = (investimentos ?? []).map((i) => ({
-      id: i.id,
-      origem: "investment" as Origem,
-      grupo: "investimento" as Grupo,
-      categoria: i.categoria || "—",
-      valor: Number(i.valor),
-      descricao: i.descricao,
-      createdAt: i.createdAt,
-    }));
-    return [...dItems, ...iItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [despesas, investimentos]);
+  const lancamentos = useMemo(
+    () => (lancamentosRaw ?? []).map((l) => ({ ...l, valor: Number(l.valor) })),
+    [lancamentosRaw],
+  );
 
   const total = useMemo(() => lancamentos.reduce((s, l) => s + l.valor, 0), [lancamentos]);
 
-  // Contas do grupo selecionado, achatadas em ordem (conta principal seguida das suas sub-contas).
+  // Contas do grupo selecionado, achatadas em ordem hierárquica (pai seguido de seus descendentes, indentados).
   const contasOrdenadas = useMemo(() => {
-    const principais = (contas ?? []).filter((c) => !c.parentId);
-    const out: { id: number; label: string }[] = [];
-    for (const p of principais) {
-      out.push({ id: p.id, label: p.nome });
-      for (const sub of (contas ?? []).filter((c) => c.parentId === p.id)) {
-        out.push({ id: sub.id, label: `— ${sub.nome}` });
-      }
+    const todas = contas ?? [];
+    const porPai = new Map<number | null, typeof todas>();
+    for (const c of todas) {
+      const key = c.parentId ?? null;
+      if (!porPai.has(key)) porPai.set(key, []);
+      porPai.get(key)!.push(c);
     }
+    const out: { id: number; label: string }[] = [];
+    const visit = (parentId: number | null, depth: number) => {
+      for (const c of porPai.get(parentId) ?? []) {
+        out.push({ id: c.id, label: `${"— ".repeat(depth)}${c.nome}` });
+        visit(c.id, depth + 1);
+      }
+    };
+    visit(null, 0);
     return out;
   }, [contas]);
 
-  const reset = () => { setForm(emptyForm(competencia)); setEditing(null); };
+  const reset = () => { setForm(emptyForm); setEditingId(null); };
 
-  const invalidateAll = () => {
-    utils.expenses.list.invalidate();
-    utils.investments.list.invalidate();
-  };
-
-  const createExpense = trpc.expenses.create.useMutation({
-    onSuccess: () => { invalidateAll(); setOpen(false); reset(); toast.success("Lançamento criado."); },
+  const create = trpc.ledgerEntries.create.useMutation({
+    onSuccess: () => { utils.ledgerEntries.list.invalidate(); setOpen(false); reset(); toast.success("Lançamento criado."); },
     onError: (e) => toast.error(e.message),
   });
-  const updateExpense = trpc.expenses.update.useMutation({
-    onSuccess: () => { invalidateAll(); setOpen(false); reset(); toast.success("Lançamento atualizado."); },
+  const update = trpc.ledgerEntries.update.useMutation({
+    onSuccess: () => { utils.ledgerEntries.list.invalidate(); setOpen(false); reset(); toast.success("Lançamento atualizado."); },
     onError: (e) => toast.error(e.message),
   });
-  const deleteExpense = trpc.expenses.delete.useMutation({
-    onSuccess: () => { invalidateAll(); toast.success("Lançamento removido."); },
-    onError: (e) => toast.error(e.message),
-  });
-  const createInvestment = trpc.investments.create.useMutation({
-    onSuccess: () => { invalidateAll(); setOpen(false); reset(); toast.success("Lançamento criado."); },
-    onError: (e) => toast.error(e.message),
-  });
-  const updateInvestment = trpc.investments.update.useMutation({
-    onSuccess: () => { invalidateAll(); setOpen(false); reset(); toast.success("Lançamento atualizado."); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteInvestment = trpc.investments.delete.useMutation({
-    onSuccess: () => { invalidateAll(); toast.success("Lançamento removido."); },
+  const del = trpc.ledgerEntries.delete.useMutation({
+    onSuccess: () => { utils.ledgerEntries.list.invalidate(); toast.success("Lançamento removido."); },
     onError: (e) => toast.error(e.message),
   });
 
   const openEdit = (l: (typeof lancamentos)[number]) => {
-    setEditing({ id: l.id, origem: l.origem });
-    setForm({ grupo: l.grupo, chartAccountId: "", valor: String(l.valor), descricao: l.descricao || "", competencia });
+    setEditingId(l.id);
+    setForm({ grupo: l.grupo as Grupo, chartAccountId: "", valor: String(l.valor), descricao: l.descricao || "" });
     setOpen(true);
   };
 
@@ -151,28 +117,19 @@ export default function Lancamentos() {
     if (!form.chartAccountId) { toast.error("Selecione a conta."); return; }
     const chartAccountId = Number(form.chartAccountId);
 
-    if (editing) {
-      const payload = { id: editing.id, chartAccountId, valor, descricao: form.descricao || undefined };
-      if (editing.origem === "expense") updateExpense.mutate(payload);
-      else updateInvestment.mutate(payload);
+    if (editingId) {
+      update.mutate({ id: editingId, chartAccountId, valor, descricao: form.descricao || undefined });
       return;
     }
 
-    const payload = { propertyId: Number(propertyId), chartAccountId, valor, competencia, descricao: form.descricao || undefined };
-    if (form.grupo === "investimento") createInvestment.mutate(payload);
-    else createExpense.mutate(payload);
-  };
-
-  const excluir = (l: (typeof lancamentos)[number]) => {
-    if (l.origem === "expense") deleteExpense.mutate({ id: l.id });
-    else deleteInvestment.mutate({ id: l.id });
+    create.mutate({ propertyId: Number(propertyId), chartAccountId, valor, competencia, descricao: form.descricao || undefined });
   };
 
   return (
     <div className="max-w-4xl mx-auto">
       <PageHeader
         title="Lançamentos"
-        subtitle="Despesas e investimentos por unidade, classificados no plano de contas."
+        subtitle="Despesas, investimentos, receitas e aportes por unidade, classificados no plano de contas."
         action={
           <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
             <DialogTrigger asChild>
@@ -182,24 +139,21 @@ export default function Lancamentos() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle className="font-serif">{editing ? "Editar lançamento" : "Novo lançamento"}</DialogTitle>
+                <DialogTitle className="font-serif">{editingId ? "Editar lançamento" : "Novo lançamento"}</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4 py-2">
                 <div className="grid gap-1.5">
                   <Label>Grupo</Label>
                   <Select
                     value={form.grupo}
-                    disabled={!!editing && editing.origem === "investment"}
+                    disabled={!!editingId}
                     onValueChange={(v) => setForm((f) => ({ ...f, grupo: v as Grupo, chartAccountId: "" }))}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {(Object.keys(GRUPO_INFO) as Grupo[])
-                        .filter((g) => !editing || editing.origem !== "expense" || g !== "investimento")
-                        .filter((g) => !editing || editing.origem !== "investment" || g === "investimento")
-                        .map((g) => (
-                          <SelectItem key={g} value={g}>{GRUPO_INFO[g].label}</SelectItem>
-                        ))}
+                      {(Object.keys(GRUPO_INFO) as Grupo[]).map((g) => (
+                        <SelectItem key={g} value={g}>{GRUPO_INFO[g].label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -231,8 +185,8 @@ export default function Lancamentos() {
               </div>
               <DialogFooter>
                 <Button variant="outline" className="bg-background" onClick={() => setOpen(false)}>Cancelar</Button>
-                <Button onClick={submit} disabled={createExpense.isPending || createInvestment.isPending || updateExpense.isPending || updateInvestment.isPending}>
-                  {editing ? "Salvar alterações" : "Lançar"}
+                <Button onClick={submit} disabled={create.isPending || update.isPending}>
+                  {editingId ? "Salvar alterações" : "Lançar"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -249,7 +203,7 @@ export default function Lancamentos() {
       />
 
       {!enabled ? (
-        <EmptyState title="Selecione um imóvel" subtitle="Escolha a unidade e a competência para lançar despesas e investimentos." />
+        <EmptyState title="Selecione um imóvel" subtitle="Escolha a unidade e a competência para lançar." />
       ) : isLoading ? (
         <div className="h-40 rounded-xl border border-border bg-card animate-pulse" />
       ) : !lancamentos.length ? (
@@ -258,17 +212,17 @@ export default function Lancamentos() {
         <Card className="overflow-hidden">
           <div className="divide-y divide-border">
             {lancamentos.map((l) => {
-              const info = GRUPO_INFO[l.grupo];
+              const info = GRUPO_INFO[l.grupo as Grupo];
               const Icon = info.icon;
               return (
-                <div key={`${l.origem}-${l.id}`} className="flex items-center justify-between px-5 py-3.5">
+                <div key={l.id} className="flex items-center justify-between px-5 py-3.5">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="h-9 w-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
                       <Icon className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm truncate">{l.categoria}</p>
+                        <p className="font-medium text-sm truncate">{l.categoria || "—"}</p>
                         <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-5 shrink-0 ${info.badgeClass}`}>{info.label}</Badge>
                       </div>
                       {l.descricao && <p className="text-xs text-muted-foreground truncate">{l.descricao}</p>}
@@ -279,7 +233,7 @@ export default function Lancamentos() {
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openEdit(l)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => excluir(l)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => del.mutate({ id: l.id })}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

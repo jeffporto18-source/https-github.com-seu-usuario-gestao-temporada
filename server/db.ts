@@ -5,8 +5,7 @@ import {
   users,
   clients,
   properties,
-  expenses,
-  investments,
+  ledgerEntries,
   reservations,
   invoices,
   chartAccounts,
@@ -20,8 +19,7 @@ import {
   contractRentCharges,
   InsertClient,
   InsertProperty,
-  InsertExpense,
-  InsertInvestment,
+  InsertLedgerEntry,
   InsertReservation,
   InsertInvoice,
   InsertChartAccount,
@@ -156,53 +154,40 @@ export async function deleteProperty(ownerId: number, id: number) {
   await db.delete(properties).where(and(eq(properties.ownerId, ownerId), eq(properties.id, id)));
 }
 
-// -------------------------------------------------------------- expenses
-export async function listExpenses(ownerId: number, propertyId?: number, competencia?: string) {
+// --------------------------------------------------------- ledger entries
+export async function listLedgerEntries(
+  ownerId: number,
+  propertyId?: number,
+  competencia?: string,
+  grupo?: "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital",
+) {
   const db = await requireDb();
-  const conds = [eq(expenses.ownerId, ownerId)];
-  if (propertyId) conds.push(eq(expenses.propertyId, propertyId));
-  if (competencia) conds.push(eq(expenses.competencia, competencia));
-  return db.select().from(expenses).where(and(...conds)).orderBy(desc(expenses.createdAt));
+  const conds = [eq(ledgerEntries.ownerId, ownerId)];
+  if (propertyId) conds.push(eq(ledgerEntries.propertyId, propertyId));
+  if (competencia) conds.push(eq(ledgerEntries.competencia, competencia));
+  if (grupo) conds.push(eq(ledgerEntries.grupo, grupo));
+  return db.select().from(ledgerEntries).where(and(...conds)).orderBy(desc(ledgerEntries.createdAt));
 }
 
-export async function createExpense(data: InsertExpense) {
+export async function createLedgerEntry(data: InsertLedgerEntry) {
   const db = await requireDb();
-  const res = await db.insert(expenses).values(data);
+  const res = await db.insert(ledgerEntries).values(data);
   return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
 }
 
-export async function updateExpense(ownerId: number, id: number, data: Partial<InsertExpense>) {
+export async function updateLedgerEntry(ownerId: number, id: number, data: Partial<InsertLedgerEntry>) {
   const db = await requireDb();
-  await db.update(expenses).set(data).where(and(eq(expenses.ownerId, ownerId), eq(expenses.id, id)));
+  await db.update(ledgerEntries).set(data).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.id, id)));
 }
 
-export async function deleteExpense(ownerId: number, id: number) {
+export async function deleteLedgerEntry(ownerId: number, id: number) {
   const db = await requireDb();
-  await db.delete(expenses).where(and(eq(expenses.ownerId, ownerId), eq(expenses.id, id)));
+  await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.id, id)));
 }
 
-// ----------------------------------------------------------- investments
-export async function listInvestments(ownerId: number, propertyId?: number, competencia?: string) {
+export async function deleteLedgerEntriesByReservation(ownerId: number, reservationId: number) {
   const db = await requireDb();
-  const conds = [eq(investments.ownerId, ownerId)];
-  if (propertyId) conds.push(eq(investments.propertyId, propertyId));
-  if (competencia) conds.push(eq(investments.competencia, competencia));
-  return db.select().from(investments).where(and(...conds)).orderBy(desc(investments.createdAt));
-}
-
-export async function createInvestment(data: InsertInvestment) {
-  const db = await requireDb();
-  await db.insert(investments).values(data);
-}
-
-export async function updateInvestment(ownerId: number, id: number, data: Partial<InsertInvestment>) {
-  const db = await requireDb();
-  await db.update(investments).set(data).where(and(eq(investments.ownerId, ownerId), eq(investments.id, id)));
-}
-
-export async function deleteInvestment(ownerId: number, id: number) {
-  const db = await requireDb();
-  await db.delete(investments).where(and(eq(investments.ownerId, ownerId), eq(investments.id, id)));
+  await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.reservationId, reservationId)));
 }
 
 // ---------------------------------------------------------- reservations
@@ -231,17 +216,12 @@ export async function updateReservation(ownerId: number, id: number, data: Parti
   await db.update(reservations).set(data).where(and(eq(reservations.ownerId, ownerId), eq(reservations.id, id)));
 }
 
-export async function deleteExpensesByReservation(ownerId: number, reservationId: number) {
-  const db = await requireDb();
-  await db.delete(expenses).where(and(eq(expenses.ownerId, ownerId), eq(expenses.reservationId, reservationId)));
-}
-
 export async function deleteReservation(ownerId: number, id: number) {
   const db = await requireDb();
   await db.delete(reservations).where(and(eq(reservations.ownerId, ownerId), eq(reservations.id, id)));
   await db.delete(invoices).where(and(eq(invoices.ownerId, ownerId), eq(invoices.reservationId, id)));
-  // Remover despesas automáticas de faxina vinculadas a esta reserva
-  await db.delete(expenses).where(and(eq(expenses.ownerId, ownerId), eq(expenses.reservationId, id)));
+  // Remover lançamentos automáticos de faxina vinculados a esta reserva
+  await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.reservationId, id)));
 }
 
 // -------------------------------------------------------------- invoices
@@ -327,7 +307,9 @@ export async function getUserById(userId: number) {
 }
 
 // ------------------------------------------------------- plano de contas (chart accounts)
-export async function listChartAccounts(ownerId: number, grupo?: "despesa_fixa" | "despesa_variavel" | "investimento") {
+type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital";
+
+export async function listChartAccounts(ownerId: number, grupo?: ChartAccountGrupo) {
   const db = await requireDb();
   const conds = [eq(chartAccounts.ownerId, ownerId)];
   if (grupo) conds.push(eq(chartAccounts.grupo, grupo));
@@ -345,11 +327,25 @@ export async function updateChartAccount(ownerId: number, id: number, data: Part
   await db.update(chartAccounts).set(data).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.id, id)));
 }
 
-/** Remove a conta e suas sub-contas (contas filhas que apontam para ela via parentId). */
+/** Remove a conta e toda a sua descendência (sub-contas em qualquer profundidade). */
 export async function deleteChartAccount(ownerId: number, id: number) {
   const db = await requireDb();
-  await db.delete(chartAccounts).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.parentId, id)));
-  await db.delete(chartAccounts).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.id, id)));
+  const all = await listChartAccounts(ownerId);
+  const toDelete = new Set<number>([id]);
+  // Percorre repetidamente até não achar mais filhos novos (profundidade livre).
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const c of all) {
+      if (c.parentId !== null && toDelete.has(c.parentId) && !toDelete.has(c.id)) {
+        toDelete.add(c.id);
+        changed = true;
+      }
+    }
+  }
+  for (const accountId of Array.from(toDelete)) {
+    await db.delete(chartAccounts).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.id, accountId)));
+  }
 }
 
 /** Semeia as contas padrão (por grupo) na primeira vez que o usuário acessa o plano de contas. */

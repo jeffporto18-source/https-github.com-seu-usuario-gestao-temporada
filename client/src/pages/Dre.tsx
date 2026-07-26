@@ -57,6 +57,16 @@ export default function Dre() {
               <Divider />
               <Line label="(=) Repasse bruto ao proprietário" value={brl(dre.repasseBruto)} bold />
 
+              {dre.receitasManuais.length > 0 && (
+                <>
+                  <SectionLabel>Outras receitas</SectionLabel>
+                  {dre.receitasManuais.map((r) => (
+                    <Line key={r.id} label={r.categoria || "Receita"} value={`+ ${brl(r.valor)}`} sub small positive />
+                  ))}
+                  <Line label="(+) Total de outras receitas" value={`+ ${brl(dre.totalReceitasManuais)}`} sub positive />
+                </>
+              )}
+
               {dre.despesasFixas.length > 0 && (
                 <>
                   <SectionLabel>Despesas fixas</SectionLabel>
@@ -97,6 +107,11 @@ export default function Dre() {
                   {brl(dre.resultadoProprietario)}
                 </span>
               </div>
+              {dre.totalAportes > 0 && (
+                <p className="text-xs text-muted-foreground pt-2">
+                  Aportes de capital no período: <span className="font-medium">{brl(dre.totalAportes)}</span> (informativo, não incluído no resultado operacional acima).
+                </p>
+              )}
             </div>
           </Card>
 

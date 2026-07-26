@@ -127,6 +127,13 @@
       "when": 1785087220600,
       "tag": "0017_add_chart_of_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1785090244960,
+      "tag": "0018_free_form_chart_accounts",
+      "breakpoints": true
     }
   ]
 }

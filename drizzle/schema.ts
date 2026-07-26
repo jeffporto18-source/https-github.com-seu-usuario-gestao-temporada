@@ -98,15 +98,16 @@ export type Property = typeof properties.$inferSelect;
 export type InsertProperty = typeof properties.$inferInsert;
 
 /**
- * Plano de contas: grupos fixos (despesa fixa, despesa variável, investimento),
- * com contas e sub-contas (parentId aponta para outra linha do mesmo grupo).
+ * Plano de contas: árvore de profundidade livre (parentId aponta para qualquer outra linha).
+ * Contas principais (parentId nulo) definem a natureza (grupo); sub-contas em qualquer
+ * profundidade herdam a natureza da conta principal ancestral, mas o nome é 100% livre.
  */
 export const chartAccounts = mysqlTable("chart_accounts", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
-  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "investimento"]).notNull(),
+  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).notNull(),
   nome: varchar("nome", { length: 100 }).notNull(),
-  parentId: int("parentId"), // null = conta principal; caso contrário, sub-conta de outra chart_accounts.id
+  parentId: int("parentId"), // null = conta principal; caso contrário, sub-conta de qualquer outra chart_accounts.id (profundidade livre)
   ativa: int("ativa").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -114,53 +115,37 @@ export const chartAccounts = mysqlTable("chart_accounts", {
 export type ChartAccount = typeof chartAccounts.$inferSelect;
 export type InsertChartAccount = typeof chartAccounts.$inferInsert;
 
-/** Contas padrão para seeding automático, por grupo */
-export const DEFAULT_CHART_ACCOUNTS: Record<"despesa_fixa" | "despesa_variavel" | "investimento", readonly string[]> = {
+/** Contas principais padrão para seeding automático, por natureza */
+export const DEFAULT_CHART_ACCOUNTS: Record<"despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital", readonly string[]> = {
   despesa_fixa: ["IPTU", "Condomínio", "Luz", "Gás"],
   despesa_variavel: ["Faxineira", "Material de Limpeza", "Kit Banheiro"],
   investimento: ["Roupa de cama", "Acessórios", "Outros itens de enxoval"],
+  receita: [],
+  aporte_capital: [],
 };
 
 /**
- * Despesas operacionais por unidade, classificadas no plano de contas.
+ * Lançamentos financeiros por unidade (despesas fixas/variáveis, investimentos, receitas
+ * extras e aportes de capital), classificados no plano de contas.
  */
-export const expenses = mysqlTable("expenses", {
+export const ledgerEntries = mysqlTable("ledger_entries", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
   propertyId: int("propertyId").notNull(),
-  chartAccountId: int("chartAccountId"), // referencia chart_accounts.id (null para legado)
-  tipoDespesa: mysqlEnum("tipoDespesa", ["fixa", "variavel"]), // espelha o grupo da conta, para consulta rápida na DRE
-  categoria: varchar("categoria", { length: 100 }), // nome da conta (denormalizado para consulta rápida)
+  chartAccountId: int("chartAccountId"), // referencia chart_accounts.id (nulo = desconto sem classificação, só com descrição)
+  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).notNull(), // denormalizado da conta, para consulta rápida
+  categoria: varchar("categoria", { length: 300 }), // caminho da conta (denormalizado para consulta rápida)
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
   competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
   descricao: varchar("descricao", { length: 500 }),
-  // Vincula despesa automática à reserva que a gerou (null = lançamento manual)
+  // Vincula lançamento automático à reserva que o gerou (null = lançamento manual)
   reservationId: int("reservationId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-export type Expense = typeof expenses.$inferSelect;
-export type InsertExpense = typeof expenses.$inferInsert;
-
-/**
- * Investimentos por unidade (enxoval / acessórios), classificados no plano de contas.
- */
-export const investments = mysqlTable("investments", {
-  id: int("id").autoincrement().primaryKey(),
-  ownerId: int("ownerId").notNull(),
-  propertyId: int("propertyId").notNull(),
-  chartAccountId: int("chartAccountId"), // referencia chart_accounts.id (null para legado)
-  categoria: varchar("categoria", { length: 100 }).notNull(),
-  valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
-  competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
-  descricao: varchar("descricao", { length: 500 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type Investment = typeof investments.$inferSelect;
-export type InsertInvestment = typeof investments.$inferInsert;
+export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+export type InsertLedgerEntry = typeof ledgerEntries.$inferInsert;
 
 /**
  * Reservas por unidade.
@@ -339,8 +324,8 @@ export const contractRentCharges = mysqlTable("contract_rent_charges", {
   desconto: decimal("desconto", { precision: 12, scale: 2 }).notNull().default("0.00"),
   // Valor efetivamente recebido: valor + multaJuros - desconto (registrado no momento do recebimento)
   valorRecebido: decimal("valorRecebido", { precision: 12, scale: 2 }),
-  // Despesa gerada automaticamente para registrar o desconto concedido (categoria escolhida na aba Despesas)
-  descontoExpenseId: int("descontoExpenseId"),
+  // Lançamento gerado automaticamente para registrar o desconto concedido (conta escolhida no plano de contas)
+  descontoLedgerEntryId: int("descontoLedgerEntryId"),
 });
 
 export type ContractRentCharge = typeof contractRentCharges.$inferSelect;

@@ -59,17 +59,23 @@ export default function MarcarRecebidoDialog({ chargeId, valorOriginal, onOpenCh
   const valorDesconto = Number(desconto) || 0;
   const valorAReceber = valorOriginal + valorMulta - valorDesconto;
 
-  // Contas de despesa (fixas e variáveis), com sub-contas indentadas.
+  // Contas de despesa (fixas e variáveis), com sub-contas indentadas (profundidade livre).
   const contasOrdenadas = useMemo(() => {
     const todas = [...(contasFixas ?? []), ...(contasVariaveis ?? [])].filter((c) => c.ativa === 1);
-    const principais = todas.filter((c) => !c.parentId);
-    const out: { id: number; label: string }[] = [];
-    for (const p of principais) {
-      out.push({ id: p.id, label: p.nome });
-      for (const sub of todas.filter((c) => c.parentId === p.id)) {
-        out.push({ id: sub.id, label: `— ${sub.nome}` });
-      }
+    const porPai = new Map<number | null, typeof todas>();
+    for (const c of todas) {
+      const key = c.parentId ?? null;
+      if (!porPai.has(key)) porPai.set(key, []);
+      porPai.get(key)!.push(c);
     }
+    const out: { id: number; label: string }[] = [];
+    const visit = (parentId: number | null, depth: number) => {
+      for (const c of porPai.get(parentId) ?? []) {
+        out.push({ id: c.id, label: `${"— ".repeat(depth)}${c.nome}` });
+        visit(c.id, depth + 1);
+      }
+    };
+    visit(null, 0);
     return out;
   }, [contasFixas, contasVariaveis]);
 

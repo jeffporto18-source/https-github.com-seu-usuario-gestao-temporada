@@ -8,23 +8,30 @@ import * as db from "./db";
 import { processarOperacao, emitirNfse, COD_LOCACAO, COD_INTERMEDIACAO } from "./fiscal";
 import { ENV } from "./_core/env";
 
-// Plano de contas (chart_accounts): grupos fixos despesa_fixa / despesa_variavel / investimento,
-// com contas e sub-contas (parentId). Usado por despesas, investimentos e pelo desconto de aluguel.
+// Plano de contas (chart_accounts): árvore de profundidade livre. Contas principais
+// (parentId nulo) definem a natureza (grupo); sub-contas em qualquer nível herdam a
+// natureza da conta principal ancestral. Usado pelos lançamentos e pelo desconto de aluguel.
+
+type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital";
 
 const num = (v: number | string | null) => Number(v ?? 0);
 
-/** Resolve uma conta do plano de contas, validando que pertence a um dos grupos permitidos, e monta o nome exibido ("Conta > Sub-conta"). */
-async function resolveChartAccount(
-  ownerId: number,
-  chartAccountId: number,
-  gruposPermitidos: Array<"despesa_fixa" | "despesa_variavel" | "investimento">,
-) {
+/** Resolve uma conta do plano de contas, validando que pertence a um dos grupos permitidos, e monta o caminho exibido ("Principal > Conta > Sub-conta"). */
+async function resolveChartAccount(ownerId: number, chartAccountId: number, gruposPermitidos: ChartAccountGrupo[]) {
   const contas = await db.listChartAccounts(ownerId);
   const conta = contas.find((c) => c.id === chartAccountId);
   if (!conta) throw new Error("Conta do plano de contas não encontrada.");
   if (!gruposPermitidos.includes(conta.grupo)) throw new Error("Conta selecionada não pertence ao grupo esperado.");
-  const nome = conta.parentId ? `${contas.find((c) => c.id === conta.parentId)?.nome ?? ""} > ${conta.nome}` : conta.nome;
-  return { conta, nome };
+  const porId = new Map(contas.map((c) => [c.id, c]));
+  const caminho: string[] = [conta.nome];
+  let atual = conta;
+  while (atual.parentId) {
+    const pai = porId.get(atual.parentId);
+    if (!pai) break;
+    caminho.unshift(pai.nome);
+    atual = pai;
+  }
+  return { conta, nome: caminho.join(" > ") };
 }
 
 const competenciaSchema = z.string().regex(/^\d{4}-\d{2}$/);
@@ -379,10 +386,10 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteCurtaManager(ctx.user.id, input.id)),
   }),
 
-  // ------------------------------------------------------------- expense categories
+  // ------------------------------------------------------------- plano de contas
   chartAccounts: router({
     list: protectedProcedure
-      .input(z.object({ grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento"]).optional() }).optional())
+      .input(z.object({ grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
         const all = await db.seedDefaultChartAccountsIfNeeded(ctx.user.id);
         return input?.grupo ? all.filter((a) => a.grupo === input.grupo) : all;
@@ -390,25 +397,40 @@ export const appRouter = router({
     create: protectedProcedure
       .input(
         z.object({
-          grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento"]),
+          grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).optional(),
           nome: z.string().min(1),
           parentId: z.number().optional(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        db.createChartAccount({ ownerId: ctx.user.id, grupo: input.grupo, nome: input.nome, parentId: input.parentId ?? null, ativa: 1 }),
-      ),
+      .mutation(async ({ ctx, input }) => {
+        let grupo = input.grupo;
+        if (input.parentId) {
+          // Sub-conta: herda a natureza da conta-pai, não importa a profundidade.
+          const contas = await db.listChartAccounts(ctx.user.id);
+          const pai = contas.find((c) => c.id === input.parentId);
+          if (!pai) throw new Error("Conta-pai não encontrada.");
+          grupo = pai.grupo;
+        }
+        if (!grupo) throw new Error("Selecione a natureza da conta principal.");
+        return db.createChartAccount({ ownerId: ctx.user.id, grupo, nome: input.nome, parentId: input.parentId ?? null, ativa: 1 });
+      }),
     update: protectedProcedure
       .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
       .mutation(({ ctx, input }) => db.updateChartAccount(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteChartAccount(ctx.user.id, input.id)),
   }),
 
-  // ------------------------------------------------------------- expenses
-  expenses: router({
+  // --------------------------------------------------------- lançamentos
+  ledgerEntries: router({
     list: protectedProcedure
-      .input(z.object({ propertyId: z.number().optional(), competencia: z.string().optional() }))
-      .query(({ ctx, input }) => db.listExpenses(ctx.user.id, input.propertyId, input.competencia)),
+      .input(
+        z.object({
+          propertyId: z.number().optional(),
+          competencia: z.string().optional(),
+          grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).optional(),
+        }),
+      )
+      .query(({ ctx, input }) => db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, input.grupo)),
     create: protectedProcedure
       .input(
         z.object({
@@ -420,12 +442,18 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
-        return db.createExpense({
+        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, [
+          "despesa_fixa",
+          "despesa_variavel",
+          "investimento",
+          "receita",
+          "aporte_capital",
+        ]);
+        return db.createLedgerEntry({
           ownerId: ctx.user.id,
           propertyId: input.propertyId,
           chartAccountId: conta.id,
-          tipoDespesa: conta.grupo === "despesa_fixa" ? "fixa" : "variavel",
+          grupo: conta.grupo,
           categoria: nome,
           valor: String(input.valor),
           competencia: input.competencia,
@@ -447,70 +475,22 @@ export const appRouter = router({
         const { id, valor, chartAccountId, ...rest } = input;
         let contaFields = {};
         if (chartAccountId !== undefined) {
-          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, ["despesa_fixa", "despesa_variavel"]);
-          contaFields = { chartAccountId: conta.id, tipoDespesa: conta.grupo === "despesa_fixa" ? "fixa" : "variavel", categoria: nome };
+          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, [
+            "despesa_fixa",
+            "despesa_variavel",
+            "investimento",
+            "receita",
+            "aporte_capital",
+          ]);
+          contaFields = { chartAccountId: conta.id, grupo: conta.grupo, categoria: nome };
         }
-        return db.updateExpense(ctx.user.id, id, {
+        return db.updateLedgerEntry(ctx.user.id, id, {
           ...rest,
           ...contaFields,
           ...(valor !== undefined ? { valor: String(valor) } : {}),
         });
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteExpense(ctx.user.id, input.id)),
-  }),
-
-  // ---------------------------------------------------------- investments
-  investments: router({
-    list: protectedProcedure
-      .input(z.object({ propertyId: z.number().optional(), competencia: z.string().optional() }))
-      .query(({ ctx, input }) => db.listInvestments(ctx.user.id, input.propertyId, input.competencia)),
-    create: protectedProcedure
-      .input(
-        z.object({
-          propertyId: z.number(),
-          chartAccountId: z.number(),
-          valor: z.number().positive(),
-          competencia: z.string().regex(/^\d{4}-\d{2}$/),
-          descricao: z.string().optional(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
-        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, ["investimento"]);
-        return db.createInvestment({
-          ownerId: ctx.user.id,
-          propertyId: input.propertyId,
-          chartAccountId: conta.id,
-          categoria: nome,
-          valor: String(input.valor),
-          competencia: input.competencia,
-          descricao: input.descricao || null,
-        });
-      }),
-    update: protectedProcedure
-      .input(
-        z.object({
-          id: z.number(),
-          propertyId: z.number().optional(),
-          chartAccountId: z.number().optional(),
-          valor: z.number().positive().optional(),
-          competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-          descricao: z.string().optional(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
-        const { id, valor, chartAccountId, ...rest } = input;
-        let contaFields = {};
-        if (chartAccountId !== undefined) {
-          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, ["investimento"]);
-          contaFields = { chartAccountId: conta.id, categoria: nome };
-        }
-        return db.updateInvestment(ctx.user.id, id, {
-          ...rest,
-          ...contaFields,
-          ...(valor !== undefined ? { valor: String(valor) } : {}),
-        });
-      }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInvestment(ctx.user.id, input.id)),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteLedgerEntry(ctx.user.id, input.id)),
   }),
 
   // --------------------------------------------------------- guarantee types
@@ -686,7 +666,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const parcelas = await db.listContractRentCharges(ctx.user.id, input.id);
         for (const p of parcelas) {
-          if (p.descontoExpenseId) await db.deleteExpense(ctx.user.id, p.descontoExpenseId);
+          if (p.descontoLedgerEntryId) await db.deleteLedgerEntry(ctx.user.id, p.descontoLedgerEntryId);
         }
         return db.deleteLongTermContract(ctx.user.id, input.id);
       }),
@@ -731,23 +711,23 @@ export const appRouter = router({
         const charge = await db.getContractRentCharge(ctx.user.id, input.id);
         if (!charge) throw new Error("Parcela não encontrada.");
 
-        // Se já havia um desconto anterior vinculado (ex.: reenviando o formulário), remove a despesa antiga primeiro.
-        if (charge.descontoExpenseId) {
-          await db.deleteExpense(ctx.user.id, charge.descontoExpenseId);
+        // Se já havia um desconto anterior vinculado (ex.: reenviando o formulário), remove o lançamento antigo primeiro.
+        if (charge.descontoLedgerEntryId) {
+          await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
         }
 
-        let descontoExpenseId: number | null = null;
+        let descontoLedgerEntryId: number | null = null;
         if (input.desconto > 0) {
           // Conta é opcional: se a pessoa descreveu o motivo, não precisa classificar por conta (e vice-versa).
-          let contaResolvida: { conta: { id: number; grupo: "despesa_fixa" | "despesa_variavel" | "investimento" }; nome: string } | null = null;
+          let contaResolvida: { conta: { id: number; grupo: ChartAccountGrupo }; nome: string } | null = null;
           if (input.descontoChartAccountId) {
             contaResolvida = await resolveChartAccount(ctx.user.id, input.descontoChartAccountId, ["despesa_fixa", "despesa_variavel"]);
           }
-          descontoExpenseId = await db.createExpense({
+          descontoLedgerEntryId = await db.createLedgerEntry({
             ownerId: ctx.user.id,
             propertyId: charge.propertyId,
             chartAccountId: contaResolvida?.conta.id ?? null,
-            tipoDespesa: contaResolvida ? (contaResolvida.conta.grupo === "despesa_fixa" ? "fixa" : "variavel") : "variavel",
+            grupo: contaResolvida?.conta.grupo ?? "despesa_variavel",
             categoria: contaResolvida?.nome ?? null,
             valor: String(input.desconto),
             competencia: charge.competencia,
@@ -763,7 +743,7 @@ export const appRouter = router({
           multaJuros: String(input.multaJuros),
           desconto: String(input.desconto),
           valorRecebido: String(valorRecebido),
-          descontoExpenseId,
+          descontoLedgerEntryId,
         });
 
         return { success: true };
@@ -772,8 +752,8 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const charge = await db.getContractRentCharge(ctx.user.id, input.id);
-        if (charge?.descontoExpenseId) {
-          await db.deleteExpense(ctx.user.id, charge.descontoExpenseId);
+        if (charge?.descontoLedgerEntryId) {
+          await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
         }
         return db.updateContractRentCharge(ctx.user.id, input.id, {
           status: "pendente",
@@ -781,7 +761,7 @@ export const appRouter = router({
           multaJuros: "0.00",
           desconto: "0.00",
           valorRecebido: null,
-          descontoExpenseId: null,
+          descontoLedgerEntryId: null,
         });
       }),
     updateCharge: protectedProcedure
@@ -797,8 +777,8 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const charge = await db.getContractRentCharge(ctx.user.id, input.id);
-        if (charge?.descontoExpenseId) {
-          await db.deleteExpense(ctx.user.id, charge.descontoExpenseId);
+        if (charge?.descontoLedgerEntryId) {
+          await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
         }
         return db.deleteContractRentCharge(ctx.user.id, input.id);
       }),
@@ -847,11 +827,12 @@ export const appRouter = router({
             // Precisamos do ID da reserva recém-criada para vincular
             const allRes = await db.listReservations(ctx.user.id, input.propertyId, input.checkin.slice(0, 7));
             const reservaCriada = allRes.find(r => r.codigo === input.codigo);
-            await db.createExpense({
+            await db.createLedgerEntry({
               ownerId: ctx.user.id,
               propertyId: input.propertyId,
+              chartAccountId: null,
+              grupo: "despesa_variavel",
               categoria: "Faxineira",
-              tipoDespesa: "variavel",
               valor: String(totalFaxina),
               competencia: input.checkin.slice(0, 7),
               descricao: `Faxina automática — Reserva ${input.codigo} (${input.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
@@ -901,17 +882,18 @@ export const appRouter = router({
           const reserva = await db.getReservation(ctx.user.id, id);
           if (reserva) {
             // Remover despesa antiga vinculada usando helper de delete por reservationId
-            await db.deleteExpensesByReservation(ctx.user.id, id);
+            await db.deleteLedgerEntriesByReservation(ctx.user.id, id);
             // Recriar se faxinas > 0
             if (faxinasUtilizadas > 0) {
               const prop = await db.getProperty(ctx.user.id, reserva.propertyId);
               const custoUnit = Number(prop?.custoFaxina ?? 0);
               if (custoUnit > 0) {
-                await db.createExpense({
+                await db.createLedgerEntry({
                   ownerId: ctx.user.id,
                   propertyId: reserva.propertyId,
+                  chartAccountId: null,
+                  grupo: "despesa_variavel",
                   categoria: "Faxineira",
-                  tipoDespesa: "variavel",
                   valor: String(custoUnit * faxinasUtilizadas),
                   competencia: reserva.competencia,
                   descricao: `Faxina automática — Reserva ${reserva.codigo} (${faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
@@ -969,11 +951,12 @@ export const appRouter = router({
             const totalFaxina = custoUnit * row.faxinasUtilizadas;
             const allRes = await db.listReservations(ctx.user.id, input.propertyId, row.checkin.slice(0, 7));
             const reservaCriada = allRes.find(r => r.codigo === row.codigo);
-            await db.createExpense({
+            await db.createLedgerEntry({
               ownerId: ctx.user.id,
               propertyId: input.propertyId,
+              chartAccountId: null,
+              grupo: "despesa_variavel",
               categoria: "Faxineira",
-              tipoDespesa: "variavel",
               valor: String(totalFaxina),
               competencia: row.checkin.slice(0, 7),
               descricao: `Faxina automática — Reserva ${row.codigo} (${row.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
@@ -1086,8 +1069,11 @@ export const appRouter = router({
         const cliente = prop.clientId ? await db.getClient(ctx.user.id, prop.clientId) : null;
 
         const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
-        const despesas = await db.listExpenses(ctx.user.id, input.propertyId, input.competencia);
-        const investimentos = await db.listInvestments(ctx.user.id, input.propertyId, input.competencia);
+        const despesasFixasRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "despesa_fixa");
+        const despesasVariaveisRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "despesa_variavel");
+        const investimentosRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "investimento");
+        const receitasManuaisRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "receita");
+        const aportesRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "aporte_capital");
 
         let receitaBruta = 0;
         let taxaAirbnb = 0;
@@ -1137,13 +1123,22 @@ export const appRouter = router({
           }
         }
 
-        const despesasFixas = despesas.filter((e) => e.tipoDespesa === "fixa").map((e) => ({ ...e, valor: num(e.valor) }));
-        const despesasVariaveis = despesas.filter((e) => e.tipoDespesa !== "fixa").map((e) => ({ ...e, valor: num(e.valor) }));
+        const despesasFixas = despesasFixasRaw.map((e) => ({ ...e, valor: num(e.valor) }));
+        const despesasVariaveis = despesasVariaveisRaw.map((e) => ({ ...e, valor: num(e.valor) }));
+        const investimentos = investimentosRaw.map((e) => ({ ...e, valor: num(e.valor) }));
+        const receitasManuais = receitasManuaisRaw.map((e) => ({ ...e, valor: num(e.valor) }));
+        const aportes = aportesRaw.map((e) => ({ ...e, valor: num(e.valor) }));
+
         const totalDespesasFixas = despesasFixas.reduce((s, e) => s + e.valor, 0);
         const totalDespesasVariaveis = despesasVariaveis.reduce((s, e) => s + e.valor, 0);
         const totalDespesas = totalDespesasFixas + totalDespesasVariaveis;
-        const totalInvestimentos = investimentos.reduce((s, i) => s + num(i.valor), 0);
-        const resultadoProprietario = liquidoProp - totalDespesas - totalInvestimentos;
+        const totalInvestimentos = investimentos.reduce((s, e) => s + e.valor, 0);
+        const totalReceitasManuais = receitasManuais.reduce((s, e) => s + e.valor, 0);
+        const totalAportes = aportes.reduce((s, e) => s + e.valor, 0);
+
+        // Receitas lançadas manualmente somam ao resultado sem incidência de comissão
+        // (comissão é específica da locação, já calculada acima a partir de reservas/contratos).
+        const resultadoProprietario = liquidoProp + totalReceitasManuais - totalDespesas - totalInvestimentos;
 
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -1163,8 +1158,12 @@ export const appRouter = router({
           despesasVariaveis,
           totalDespesasVariaveis: round2(totalDespesasVariaveis),
           totalDespesas: round2(totalDespesas),
-          investimentos: investimentos.map((i) => ({ ...i, valor: num(i.valor) })),
+          investimentos,
           totalInvestimentos: round2(totalInvestimentos),
+          receitasManuais,
+          totalReceitasManuais: round2(totalReceitasManuais),
+          aportes,
+          totalAportes: round2(totalAportes),
           resultadoProprietario: round2(resultadoProprietario),
         };
       }),

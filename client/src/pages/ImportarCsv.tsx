@@ -164,7 +164,7 @@ export default function ImportarCsv() {
   const importMut = trpc.reservations.importCsv.useMutation({
     onSuccess: (res) => {
       utils.reservations.list.invalidate();
-      utils.expenses.list.invalidate();
+      utils.ledgerEntries.list.invalidate();
       toast.success(`${res.importadas} reserva(s) importada(s) com sucesso!`);
       setParsedRows([]);
       setFileName("");

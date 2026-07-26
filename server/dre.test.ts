@@ -5,8 +5,7 @@ vi.mock("./db", () => ({
   getProperty: vi.fn(),
   getClient: vi.fn(),
   listReservations: vi.fn(),
-  listExpenses: vi.fn(),
-  listInvestments: vi.fn(),
+  listLedgerEntries: vi.fn(),
 }));
 
 import * as db from "./db";
@@ -50,13 +49,18 @@ describe("dre.porUnidade", () => {
     (db.listReservations as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 1, codigo: "R1", valorBruto: "1800", taxaLimpeza: "200", taxaAirbnbPct: "4", noites: 3, checkin: new Date("2026-06-01"), checkout: new Date("2026-06-04") },
     ]);
-    (db.listExpenses as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 1, categoria: "luz", valor: "150" },
-      { id: 2, categoria: "condominio", valor: "300" },
-    ]);
-    (db.listInvestments as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 1, categoria: "roupa_de_cama", valor: "100" },
-    ]);
+    (db.listLedgerEntries as ReturnType<typeof vi.fn>).mockImplementation((_ownerId: number, _propertyId: number, _competencia: string, grupo: string) => {
+      if (grupo === "despesa_variavel") {
+        return Promise.resolve([
+          { id: 1, categoria: "luz", valor: "150" },
+          { id: 2, categoria: "condominio", valor: "300" },
+        ]);
+      }
+      if (grupo === "investimento") {
+        return Promise.resolve([{ id: 1, categoria: "roupa_de_cama", valor: "100" }]);
+      }
+      return Promise.resolve([]);
+    });
 
     const caller = appRouter.createCaller(ctxFor());
     const dre = await caller.dre.porUnidade({ propertyId: 10, competencia: "2026-06" });

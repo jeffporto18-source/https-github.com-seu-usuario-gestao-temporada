@@ -859,6 +859,8 @@ export const appRouter = router({
           checkout: z.string(),
           noites: z.number().int().positive(),
           faxinasUtilizadas: z.number().int().min(0).default(1),
+          nomeHospede: z.string().optional(),
+          estrangeiro: z.boolean().default(false),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -874,6 +876,8 @@ export const appRouter = router({
           noites: input.noites,
           faxinasUtilizadas: input.faxinasUtilizadas,
           competencia: input.checkin.slice(0, 7),
+          nomeHospede: input.nomeHospede || null,
+          estrangeiro: input.estrangeiro ? 1 : 0,
         });
 
         // Gerar despesa automática de faxina se houver custo configurado no imóvel
@@ -913,10 +917,12 @@ export const appRouter = router({
           checkout: z.string().optional(),
           noites: z.number().int().positive().optional(),
           faxinasUtilizadas: z.number().int().min(0).optional(),
+          nomeHospede: z.string().optional(),
+          estrangeiro: z.boolean().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { id, valorBruto, taxaLimpeza, taxaAirbnbPct, checkin, checkout, faxinasUtilizadas, ...rest } = input;
+        const { id, valorBruto, taxaLimpeza, taxaAirbnbPct, checkin, checkout, faxinasUtilizadas, estrangeiro, ...rest } = input;
 
         // Verificar se há NFS-e emitida — bloquear edição de campos fiscais e de período
         const notasExistentes = await db.listInvoicesByReservation(ctx.user.id, id);
@@ -935,6 +941,7 @@ export const appRouter = router({
           ...(checkin !== undefined ? { checkin: new Date(checkin), competencia: checkin.slice(0, 7) } : {}),
           ...(checkout !== undefined ? { checkout: new Date(checkout) } : {}),
           ...(faxinasUtilizadas !== undefined ? { faxinasUtilizadas } : {}),
+          ...(estrangeiro !== undefined ? { estrangeiro: estrangeiro ? 1 : 0 } : {}),
         });
 
         // Reconciliar despesa automática de faxina se faxinasUtilizadas mudou

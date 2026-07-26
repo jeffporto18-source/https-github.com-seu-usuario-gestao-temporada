@@ -57,4 +57,61 @@ export function registerUploadRoutes(app: Express) {
       res.status(500).json({ error: error.message || "Erro ao fazer upload do contrato." });
     }
   });
+
+  /**
+   * POST /api/upload/documento-reserva
+   * Body: multipart/form-data with field "file" (PDF ou imagem) e "reservationId" (number)
+   * Documento de identificação do hóspede.
+   * Returns: { documentoUrl, documentoKey }
+   */
+  const EXT_BY_MIME: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+
+  app.post("/api/upload/documento-reserva", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Não autenticado." });
+        return;
+      }
+
+      const reservationId = Number(req.body.reservationId);
+      if (!reservationId) {
+        res.status(400).json({ error: "reservationId é obrigatório." });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "Arquivo não enviado." });
+        return;
+      }
+
+      const ext = EXT_BY_MIME[file.mimetype];
+      if (!ext) {
+        res.status(400).json({ error: "Apenas PDF ou imagens (JPG, PNG, WEBP) são aceitos." });
+        return;
+      }
+
+      const reserva = await db.getReservation(user.id, reservationId);
+      if (!reserva) {
+        res.status(404).json({ error: "Reserva não encontrada." });
+        return;
+      }
+
+      const relKey = `documentos/reserva_${reservationId}.${ext}`;
+      const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
+
+      await db.updateReservation(user.id, reservationId, { documentoUrl: url, documentoKey: key });
+
+      res.json({ documentoUrl: url, documentoKey: key });
+    } catch (error: any) {
+      console.error("[Upload] Reservation document upload failed:", error);
+      res.status(500).json({ error: error.message || "Erro ao fazer upload do documento." });
+    }
+  });
 }

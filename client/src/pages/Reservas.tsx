@@ -12,9 +12,10 @@ import {
 } from "@/components/ui/dialog";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useMemo, useState } from "react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, FileText, CalendarDays, CheckCircle2, Loader2, Pencil } from "lucide-react";
+import { Plus, Trash2, FileText, CalendarDays, CheckCircle2, Loader2, Pencil, Upload, ExternalLink, User } from "lucide-react";
 import { brl, competenciaAtual } from "@/lib/format";
 import { PageHeader, EmptyState } from "./Clientes";
 import { UnitPeriodFilter } from "@/components/UnitPeriodFilter";
@@ -27,9 +28,11 @@ interface ReservaForm {
   checkin: string;
   checkout: string;
   faxinas: string;
+  nomeHospede: string;
+  estrangeiro: boolean;
 }
 
-const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "4", checkin: "", checkout: "", faxinas: "1" };
+const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "4", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", estrangeiro: false };
 
 export default function Reservas() {
   const utils = trpc.useUtils();
@@ -92,6 +95,8 @@ export default function Reservas() {
       checkin: new Date(r.checkin).toISOString().slice(0, 10),
       checkout: new Date(r.checkout).toISOString().slice(0, 10),
       faxinas: String(r.faxinasUtilizadas ?? 1),
+      nomeHospede: r.nomeHospede || "",
+      estrangeiro: r.estrangeiro === 1,
     });
     setOpen(true);
   };
@@ -112,6 +117,8 @@ export default function Reservas() {
         checkout: form.checkout,
         noites: noites(form.checkin, form.checkout),
         faxinasUtilizadas: Number(form.faxinas) || 1,
+        nomeHospede: form.nomeHospede || undefined,
+        estrangeiro: form.estrangeiro,
       });
     } else {
       create.mutate({
@@ -124,6 +131,8 @@ export default function Reservas() {
         checkout: form.checkout,
         noites: noites(form.checkin, form.checkout),
         faxinasUtilizadas: Number(form.faxinas) || 1,
+        nomeHospede: form.nomeHospede || undefined,
+        estrangeiro: form.estrangeiro,
       });
     }
   };
@@ -177,6 +186,29 @@ export default function Reservas() {
                   <Label>Faxinas utilizadas</Label>
                   <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" />
                   <p className="text-xs text-muted-foreground">Gera despesa automática conforme custo configurado no imóvel.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 items-end">
+                  <div className="grid gap-1.5">
+                    <Label>Nome do hóspede</Label>
+                    <Input value={form.nomeHospede} onChange={(e) => setForm({ ...form, nomeHospede: e.target.value })} placeholder="Nome completo" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Hóspede estrangeiro?</Label>
+                    <RadioGroup
+                      className="flex items-center gap-4 h-9"
+                      value={form.estrangeiro ? "sim" : "nao"}
+                      onValueChange={(v) => setForm({ ...form, estrangeiro: v === "sim" })}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <RadioGroupItem value="nao" id="estrangeiro-nao" />
+                        <Label htmlFor="estrangeiro-nao" className="font-normal cursor-pointer">Não</Label>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <RadioGroupItem value="sim" id="estrangeiro-sim" />
+                        <Label htmlFor="estrangeiro-sim" className="font-normal cursor-pointer">Sim</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
                 </div>
               </div>
               <DialogFooter>
@@ -251,15 +283,52 @@ function ReservaCard({
   onEdit,
   emitindo,
 }: {
-  reserva: { id: number; codigo: string; valorBruto: string; taxaLimpeza: string; taxaAirbnbPct: string; checkin: unknown; checkout: unknown; noites: number; faxinasUtilizadas: number | null };
+  reserva: {
+    id: number;
+    codigo: string;
+    valorBruto: string;
+    taxaLimpeza: string;
+    taxaAirbnbPct: string;
+    checkin: unknown;
+    checkout: unknown;
+    noites: number;
+    faxinasUtilizadas: number | null;
+    nomeHospede: string | null;
+    estrangeiro: number;
+    documentoUrl: string | null;
+  };
   onDelete: () => void;
   onEmitir: () => void;
   onEdit: () => void;
   emitindo: boolean;
 }) {
+  const utils = trpc.useUtils();
   const { data: notas } = trpc.reservations.invoices.useQuery({ reservationId: reserva.id });
   const emitida = (notas?.length ?? 0) > 0;
   const fmt = (d: unknown) => new Date(d as string).toLocaleDateString("pt-BR");
+
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDocUpload = async (file: File) => {
+    setUploadingDoc(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("reservationId", String(reserva.id));
+      const resp = await fetch("/api/upload/documento-reserva", { method: "POST", body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Erro ao enviar." }));
+        throw new Error(err.error);
+      }
+      toast.success("Documento enviado.");
+      utils.reservations.list.invalidate();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao enviar documento.");
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
 
   return (
     <Card className="p-5">
@@ -273,6 +342,12 @@ function ReservaCard({
             <p className="text-xs text-muted-foreground">
               {fmt(reserva.checkin)} → {fmt(reserva.checkout)} · {reserva.noites} noites
             </p>
+            {reserva.nomeHospede && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                <User className="h-3 w-3" /> {reserva.nomeHospede}
+                {reserva.estrangeiro === 1 && <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0 h-4">Estrangeiro</Badge>}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -290,7 +365,7 @@ function ReservaCard({
         <Info label="Receita bruta" value={brl(Number(reserva.valorBruto) + Number(reserva.taxaLimpeza))} strong />
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2 flex-wrap">
         <Button size="sm" onClick={onEmitir} disabled={emitindo} className="active:scale-[0.97] transition-transform">
           {emitindo ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileText className="mr-1 h-4 w-4" />}
           {emitida ? "Reemitir NFS-e" : "Emitir NFS-e"}
@@ -298,6 +373,37 @@ function ReservaCard({
         <Button size="sm" variant="outline" className="text-muted-foreground hover:text-primary" onClick={onEdit}>
           <Pencil className="mr-1 h-4 w-4" /> Editar
         </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf,image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleDocUpload(file);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-muted-foreground hover:text-primary"
+          disabled={uploadingDoc}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploadingDoc ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Upload className="mr-1 h-4 w-4" />}
+          {reserva.documentoUrl ? "Substituir documento" : "Anexar documento"}
+        </Button>
+        {reserva.documentoUrl && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground hover:text-primary"
+            onClick={() => window.open(reserva.documentoUrl!, "_blank", "noopener,noreferrer")}
+          >
+            <ExternalLink className="mr-1 h-4 w-4" /> Ver documento
+          </Button>
+        )}
         <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
         </Button>

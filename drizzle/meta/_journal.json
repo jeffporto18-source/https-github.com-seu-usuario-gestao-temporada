@@ -148,6 +148,13 @@
       "when": 1785097770001,
       "tag": "0020_add_fornecedores",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1785099893257,
+      "tag": "0021_add_reserva_hospede_fields",
+      "breakpoints": true
     }
   ]
 }

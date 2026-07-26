@@ -170,6 +170,10 @@ export const reservations = mysqlTable("reservations", {
   // Faxinas utilizadas nesta reserva (gera despesa automática)
   faxinasUtilizadas: int("faxinasUtilizadas").notNull().default(1),
   competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
+  nomeHospede: varchar("nomeHospede", { length: 150 }),
+  estrangeiro: int("estrangeiro").notNull().default(0), // 0 = não, 1 = sim
+  documentoUrl: varchar("documentoUrl", { length: 500 }),
+  documentoKey: varchar("documentoKey", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

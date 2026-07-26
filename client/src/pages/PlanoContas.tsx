@@ -28,16 +28,17 @@ import { toast } from "sonner";
 import { Plus, Trash2, Pencil, MoreHorizontal, ChevronRight, ChevronDown } from "lucide-react";
 import { PageHeader } from "./Clientes";
 
-type Grupo = "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital";
+type Grupo = "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
 type ChartAccount = RouterOutputs["chartAccounts"]["list"][number];
 
 const GRUPO_LABELS: Record<Grupo, string> = {
   despesa_fixa: "Despesa Fixa",
   despesa_variavel: "Despesa Variável",
-  investimento: "Investimento",
   receita: "Receita",
   aporte_capital: "Aporte de Capital",
 };
+
+const MAX_DEPTH = 3; // 4 níveis: 0=conta principal, 1=conta, 2=subconta, 3=sub-subconta
 
 export default function PlanoContas() {
   const utils = trpc.useUtils();
@@ -87,7 +88,7 @@ export default function PlanoContas() {
     <div className="max-w-4xl mx-auto">
       <PageHeader
         title="Plano de Contas"
-        subtitle="Conta principal › conta › subconta. Profundidade livre. Alimenta os Lançamentos e a DRE."
+        subtitle="Conta principal › conta › subconta › sub-subconta. Alimenta as Receitas, Despesas, Aportes e a DRE."
         action={
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="bg-background" onClick={() => setExpanded(new Set(allIds))}>Expandir tudo</Button>
@@ -216,7 +217,7 @@ export default function PlanoContas() {
   );
 }
 
-const DEPTH_LABEL = (depth: number) => (depth === 0 ? "Conta principal" : depth === 1 ? "Conta" : "Subconta");
+const DEPTH_LABEL = (depth: number) => (depth === 0 ? "Conta principal" : depth === 1 ? "Conta" : depth === 2 ? "Subconta" : "Sub-subconta");
 
 function AccountNode({
   conta,
@@ -259,9 +260,11 @@ function AccountNode({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onNovaSub(conta.id)}>
-              <Plus className="mr-2 h-3.5 w-3.5" /> Subconta
-            </DropdownMenuItem>
+            {depth < MAX_DEPTH && (
+              <DropdownMenuItem onClick={() => onNovaSub(conta.id)}>
+                <Plus className="mr-2 h-3.5 w-3.5" /> Subconta
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onEditar(conta)}>
               <Pencil className="mr-2 h-3.5 w-3.5" /> Editar
             </DropdownMenuItem>

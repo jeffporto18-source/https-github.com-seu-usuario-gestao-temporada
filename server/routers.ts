@@ -12,7 +12,9 @@ import { ENV } from "./_core/env";
 // (parentId nulo) definem a natureza (grupo); sub-contas em qualquer nível herdam a
 // natureza da conta principal ancestral. Usado pelos lançamentos e pelo desconto de aluguel.
 
-type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital";
+type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
+const CHART_ACCOUNT_GRUPOS: ChartAccountGrupo[] = ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"];
+const CHART_ACCOUNT_MAX_DEPTH = 3; // 4 níveis: 0=conta principal, 1=conta, 2=subconta, 3=sub-subconta
 
 const num = (v: number | string | null) => Number(v ?? 0);
 
@@ -32,6 +34,18 @@ async function resolveChartAccount(ownerId: number, chartAccountId: number, grup
     atual = pai;
   }
   return { conta, nome: caminho.join(" > ") };
+}
+
+/** Profundidade de uma conta (0 = conta principal), contando os ancestrais via parentId. */
+function depthOf(contas: { id: number; parentId: number | null }[], accountId: number): number {
+  const porId = new Map(contas.map((c) => [c.id, c]));
+  let depth = 0;
+  let atual = porId.get(accountId);
+  while (atual?.parentId) {
+    depth++;
+    atual = porId.get(atual.parentId);
+  }
+  return depth;
 }
 
 const competenciaSchema = z.string().regex(/^\d{4}-\d{2}$/);
@@ -389,7 +403,7 @@ export const appRouter = router({
   // ------------------------------------------------------------- plano de contas
   chartAccounts: router({
     list: protectedProcedure
-      .input(z.object({ grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).optional() }).optional())
+      .input(z.object({ grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
         const all = await db.seedDefaultChartAccountsIfNeeded(ctx.user.id);
         return input?.grupo ? all.filter((a) => a.grupo === input.grupo) : all;
@@ -397,7 +411,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(
         z.object({
-          grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).optional(),
+          grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
           nome: z.string().min(1),
           parentId: z.number().optional(),
         }),
@@ -405,10 +419,13 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         let grupo = input.grupo;
         if (input.parentId) {
-          // Sub-conta: herda a natureza da conta-pai, não importa a profundidade.
           const contas = await db.listChartAccounts(ctx.user.id);
           const pai = contas.find((c) => c.id === input.parentId);
           if (!pai) throw new Error("Conta-pai não encontrada.");
+          // Sub-conta herda a natureza da conta-pai. Plano de contas tem exatamente 4 níveis fixos.
+          if (depthOf(contas, pai.id) >= CHART_ACCOUNT_MAX_DEPTH) {
+            throw new Error("O plano de contas permite no máximo 4 níveis (conta principal › conta › subconta › sub-subconta).");
+          }
           grupo = pai.grupo;
         }
         if (!grupo) throw new Error("Selecione a natureza da conta principal.");
@@ -420,44 +437,45 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteChartAccount(ctx.user.id, input.id)),
   }),
 
-  // --------------------------------------------------------- lançamentos
+  // --------------------------------------------------------- lançamentos (receitas, despesas, aportes)
   ledgerEntries: router({
     list: protectedProcedure
       .input(
         z.object({
           propertyId: z.number().optional(),
-          competencia: z.string().optional(),
-          grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).optional(),
+          grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
         }),
       )
-      .query(({ ctx, input }) => db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, input.grupo)),
+      .query(({ ctx, input }) => db.listLedgerEntries(ctx.user.id, input.propertyId, input.grupo)),
     create: protectedProcedure
       .input(
         z.object({
           propertyId: z.number(),
           chartAccountId: z.number(),
-          valor: z.number().positive(),
-          competencia: z.string().regex(/^\d{4}-\d{2}$/),
           descricao: z.string().optional(),
+          contraparte: z.string().optional(),
+          valor: z.number().positive(),
+          dia: z.number().int().min(1).max(31),
+          competenciaInicio: z.string().regex(/^\d{4}-\d{2}$/),
+          qtdMeses: z.number().int().positive().default(1),
+          observacao: z.string().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, [
-          "despesa_fixa",
-          "despesa_variavel",
-          "investimento",
-          "receita",
-          "aporte_capital",
-        ]);
+        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, CHART_ACCOUNT_GRUPOS);
         return db.createLedgerEntry({
           ownerId: ctx.user.id,
           propertyId: input.propertyId,
           chartAccountId: conta.id,
           grupo: conta.grupo,
           categoria: nome,
-          valor: String(input.valor),
-          competencia: input.competencia,
           descricao: input.descricao || null,
+          contraparte: input.contraparte || null,
+          valor: String(input.valor),
+          dia: input.dia,
+          competenciaInicio: input.competenciaInicio,
+          qtdMeses: input.qtdMeses,
+          observacao: input.observacao || null,
         });
       }),
     update: protectedProcedure
@@ -466,22 +484,20 @@ export const appRouter = router({
           id: z.number(),
           propertyId: z.number().optional(),
           chartAccountId: z.number().optional(),
-          valor: z.number().positive().optional(),
-          competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
           descricao: z.string().optional(),
+          contraparte: z.string().optional(),
+          valor: z.number().positive().optional(),
+          dia: z.number().int().min(1).max(31).optional(),
+          competenciaInicio: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+          qtdMeses: z.number().int().positive().optional(),
+          observacao: z.string().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
         const { id, valor, chartAccountId, ...rest } = input;
         let contaFields = {};
         if (chartAccountId !== undefined) {
-          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, [
-            "despesa_fixa",
-            "despesa_variavel",
-            "investimento",
-            "receita",
-            "aporte_capital",
-          ]);
+          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, CHART_ACCOUNT_GRUPOS);
           contaFields = { chartAccountId: conta.id, grupo: conta.grupo, categoria: nome };
         }
         return db.updateLedgerEntry(ctx.user.id, id, {
@@ -730,7 +746,9 @@ export const appRouter = router({
             grupo: contaResolvida?.conta.grupo ?? "despesa_variavel",
             categoria: contaResolvida?.nome ?? null,
             valor: String(input.desconto),
-            competencia: charge.competencia,
+            dia: 1,
+            competenciaInicio: charge.competencia,
+            qtdMeses: 1,
             descricao: input.descontoDescricao?.trim() || `Desconto concedido — aluguel ${charge.competencia}`,
           });
         }
@@ -834,7 +852,9 @@ export const appRouter = router({
               grupo: "despesa_variavel",
               categoria: "Faxineira",
               valor: String(totalFaxina),
-              competencia: input.checkin.slice(0, 7),
+              dia: Number(input.checkin.slice(8, 10)) || 1,
+              competenciaInicio: input.checkin.slice(0, 7),
+              qtdMeses: 1,
               descricao: `Faxina automática — Reserva ${input.codigo} (${input.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
               reservationId: reservaCriada?.id ?? null,
             });
@@ -895,7 +915,9 @@ export const appRouter = router({
                   grupo: "despesa_variavel",
                   categoria: "Faxineira",
                   valor: String(custoUnit * faxinasUtilizadas),
-                  competencia: reserva.competencia,
+                  dia: new Date(reserva.checkin).getDate(),
+                  competenciaInicio: reserva.competencia,
+                  qtdMeses: 1,
                   descricao: `Faxina automática — Reserva ${reserva.codigo} (${faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
                   reservationId: id,
                 });
@@ -958,7 +980,9 @@ export const appRouter = router({
               grupo: "despesa_variavel",
               categoria: "Faxineira",
               valor: String(totalFaxina),
-              competencia: row.checkin.slice(0, 7),
+              dia: Number(row.checkin.slice(8, 10)) || 1,
+              competenciaInicio: row.checkin.slice(0, 7),
+              qtdMeses: 1,
               descricao: `Faxina automática — Reserva ${row.codigo} (${row.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
               reservationId: reservaCriada?.id ?? null,
             });
@@ -1069,11 +1093,10 @@ export const appRouter = router({
         const cliente = prop.clientId ? await db.getClient(ctx.user.id, prop.clientId) : null;
 
         const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
-        const despesasFixasRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "despesa_fixa");
-        const despesasVariaveisRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "despesa_variavel");
-        const investimentosRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "investimento");
-        const receitasManuaisRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "receita");
-        const aportesRaw = await db.listLedgerEntries(ctx.user.id, input.propertyId, input.competencia, "aporte_capital");
+        const despesasFixasRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "despesa_fixa");
+        const despesasVariaveisRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "despesa_variavel");
+        const receitasManuaisRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "receita");
+        const aportesRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "aporte_capital");
 
         let receitaBruta = 0;
         let taxaAirbnb = 0;
@@ -1125,20 +1148,18 @@ export const appRouter = router({
 
         const despesasFixas = despesasFixasRaw.map((e) => ({ ...e, valor: num(e.valor) }));
         const despesasVariaveis = despesasVariaveisRaw.map((e) => ({ ...e, valor: num(e.valor) }));
-        const investimentos = investimentosRaw.map((e) => ({ ...e, valor: num(e.valor) }));
         const receitasManuais = receitasManuaisRaw.map((e) => ({ ...e, valor: num(e.valor) }));
         const aportes = aportesRaw.map((e) => ({ ...e, valor: num(e.valor) }));
 
         const totalDespesasFixas = despesasFixas.reduce((s, e) => s + e.valor, 0);
         const totalDespesasVariaveis = despesasVariaveis.reduce((s, e) => s + e.valor, 0);
         const totalDespesas = totalDespesasFixas + totalDespesasVariaveis;
-        const totalInvestimentos = investimentos.reduce((s, e) => s + e.valor, 0);
         const totalReceitasManuais = receitasManuais.reduce((s, e) => s + e.valor, 0);
         const totalAportes = aportes.reduce((s, e) => s + e.valor, 0);
 
         // Receitas lançadas manualmente somam ao resultado sem incidência de comissão
         // (comissão é específica da locação, já calculada acima a partir de reservas/contratos).
-        const resultadoProprietario = liquidoProp + totalReceitasManuais - totalDespesas - totalInvestimentos;
+        const resultadoProprietario = liquidoProp + totalReceitasManuais - totalDespesas;
 
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -1158,8 +1179,6 @@ export const appRouter = router({
           despesasVariaveis,
           totalDespesasVariaveis: round2(totalDespesasVariaveis),
           totalDespesas: round2(totalDespesas),
-          investimentos,
-          totalInvestimentos: round2(totalInvestimentos),
           receitasManuais,
           totalReceitasManuais: round2(totalReceitasManuais),
           aportes,

@@ -87,16 +87,6 @@ export default function Dre() {
               )}
               <Line label="(−) Total de despesas variáveis" value={`− ${brl(dre.totalDespesasVariaveis)}`} sub />
 
-              {dre.investimentos.length > 0 && (
-                <>
-                  <SectionLabel>Investimentos</SectionLabel>
-                  {dre.investimentos.map((i) => (
-                    <Line key={i.id} label={i.categoria || "Investimento"} value={`− ${brl(i.valor)}`} sub small />
-                  ))}
-                </>
-              )}
-              <Line label="(−) Total de investimentos" value={`− ${brl(dre.totalInvestimentos)}`} sub />
-
               <Divider />
               <div className={`flex items-center justify-between rounded-lg px-4 py-4 ${dre.resultadoProprietario >= 0 ? "bg-primary/10" : "bg-destructive/10"}`}>
                 <span className="flex items-center gap-2 font-medium">

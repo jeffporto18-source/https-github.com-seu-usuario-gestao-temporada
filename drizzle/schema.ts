@@ -98,16 +98,17 @@ export type Property = typeof properties.$inferSelect;
 export type InsertProperty = typeof properties.$inferInsert;
 
 /**
- * Plano de contas: árvore de profundidade livre (parentId aponta para qualquer outra linha).
- * Contas principais (parentId nulo) definem a natureza (grupo); sub-contas em qualquer
- * profundidade herdam a natureza da conta principal ancestral, mas o nome é 100% livre.
+ * Plano de contas: árvore de profundidade FIXA em 4 níveis (parentId aponta para o nível
+ * imediatamente acima). Nível 0 = conta principal (define a natureza/grupo), nível 1 = conta,
+ * nível 2 = subconta, nível 3 = sub-subconta. Sub-contas herdam a natureza da conta principal
+ * ancestral, mas o nome é livre.
  */
 export const chartAccounts = mysqlTable("chart_accounts", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
-  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).notNull(),
+  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).notNull(),
   nome: varchar("nome", { length: 100 }).notNull(),
-  parentId: int("parentId"), // null = conta principal; caso contrário, sub-conta de qualquer outra chart_accounts.id (profundidade livre)
+  parentId: int("parentId"), // null = conta principal (nível 0); caso contrário, aponta para o pai imediato (máx. nível 3)
   ativa: int("ativa").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -115,29 +116,33 @@ export const chartAccounts = mysqlTable("chart_accounts", {
 export type ChartAccount = typeof chartAccounts.$inferSelect;
 export type InsertChartAccount = typeof chartAccounts.$inferInsert;
 
-/** Contas principais padrão para seeding automático, por natureza */
-export const DEFAULT_CHART_ACCOUNTS: Record<"despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital", readonly string[]> = {
-  despesa_fixa: ["IPTU", "Condomínio", "Luz", "Gás"],
-  despesa_variavel: ["Faxineira", "Material de Limpeza", "Kit Banheiro"],
-  investimento: ["Roupa de cama", "Acessórios", "Outros itens de enxoval"],
-  receita: [],
-  aporte_capital: [],
+/** Conta principal padrão (única, por natureza) semeada na primeira vez que o usuário acessa o plano de contas. */
+export const DEFAULT_CHART_ACCOUNTS: Record<"despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital", string> = {
+  despesa_fixa: "Despesas fixas",
+  despesa_variavel: "Despesas variáveis / extras",
+  receita: "Receitas",
+  aporte_capital: "Aportes de capital",
 };
 
 /**
- * Lançamentos financeiros por unidade (despesas fixas/variáveis, investimentos, receitas
- * extras e aportes de capital), classificados no plano de contas.
+ * Lançamentos financeiros por unidade (despesas, receitas e aportes de capital), sempre
+ * vinculados a um imóvel e classificados no plano de contas. Suporta recorrência: um único
+ * registro representa uma série mensal (competenciaInicio + qtdMeses), não uma ocorrência por mês.
  */
 export const ledgerEntries = mysqlTable("ledger_entries", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
   propertyId: int("propertyId").notNull(),
   chartAccountId: int("chartAccountId"), // referencia chart_accounts.id (nulo = desconto sem classificação, só com descrição)
-  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "investimento", "receita", "aporte_capital"]).notNull(), // denormalizado da conta, para consulta rápida
+  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).notNull(), // denormalizado da conta, para consulta rápida
   categoria: varchar("categoria", { length: 300 }), // caminho da conta (denormalizado para consulta rápida)
+  descricao: varchar("descricao", { length: 300 }),
+  contraparte: varchar("contraparte", { length: 150 }), // cliente/origem (receita) ou fornecedor (despesa/aporte)
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
-  competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
-  descricao: varchar("descricao", { length: 500 }),
+  dia: int("dia").notNull(), // dia do mês de recebimento/vencimento (1-31)
+  competenciaInicio: varchar("competenciaInicio", { length: 7 }).notNull(), // "AAAA-MM" do primeiro mês da série
+  qtdMeses: int("qtdMeses").notNull().default(1), // quantidade de meses da série (1 = lançamento único)
+  observacao: varchar("observacao", { length: 1000 }),
   // Vincula lançamento automático à reserva que o gerou (null = lançamento manual)
   reservationId: int("reservationId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

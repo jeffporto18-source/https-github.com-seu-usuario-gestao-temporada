@@ -52,6 +52,15 @@ export function formatCompetencia(v: string): string {
   return `${meses[Number(m) - 1]}/${y}`;
 }
 
+/** Soma meses a uma competência "AAAA-MM", retornando a nova competência no mesmo formato. */
+export function addMesesCompetencia(competencia: string, meses: number): string {
+  const [y, m] = competencia.split("-").map(Number);
+  const total = y * 12 + (m - 1) + meses;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+
 export function formatCpfCnpj(v: string): string {
   const d = v.replace(/\D/g, "");
   if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");

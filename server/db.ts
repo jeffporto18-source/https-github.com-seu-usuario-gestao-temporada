@@ -155,18 +155,36 @@ export async function deleteProperty(ownerId: number, id: number) {
 }
 
 // --------------------------------------------------------- ledger entries
+/** Cada linha representa uma série mensal (competenciaInicio + qtdMeses), não uma ocorrência única. */
 export async function listLedgerEntries(
   ownerId: number,
   propertyId?: number,
-  competencia?: string,
-  grupo?: "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital",
+  grupo?: "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital",
 ) {
   const db = await requireDb();
   const conds = [eq(ledgerEntries.ownerId, ownerId)];
   if (propertyId) conds.push(eq(ledgerEntries.propertyId, propertyId));
-  if (competencia) conds.push(eq(ledgerEntries.competencia, competencia));
   if (grupo) conds.push(eq(ledgerEntries.grupo, grupo));
   return db.select().from(ledgerEntries).where(and(...conds)).orderBy(desc(ledgerEntries.createdAt));
+}
+
+/** Verifica se a competência alvo ("AAAA-MM") cai dentro da série [competenciaInicio, competenciaInicio + qtdMeses - 1]. */
+export function competenciaNaSerie(competenciaInicio: string, qtdMeses: number, alvo: string): boolean {
+  const [y0, m0] = competenciaInicio.split("-").map(Number);
+  const [y1, m1] = alvo.split("-").map(Number);
+  const idx = (y1 * 12 + (m1 - 1)) - (y0 * 12 + (m0 - 1));
+  return idx >= 0 && idx < qtdMeses;
+}
+
+/** Lançamentos cuja série cobre a competência informada (para a DRE do mês). */
+export async function listLedgerEntriesNaCompetencia(
+  ownerId: number,
+  propertyId: number,
+  competencia: string,
+  grupo?: "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital",
+) {
+  const todos = await listLedgerEntries(ownerId, propertyId, grupo);
+  return todos.filter((e) => competenciaNaSerie(e.competenciaInicio, e.qtdMeses, competencia));
 }
 
 export async function createLedgerEntry(data: InsertLedgerEntry) {
@@ -307,7 +325,7 @@ export async function getUserById(userId: number) {
 }
 
 // ------------------------------------------------------- plano de contas (chart accounts)
-type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "investimento" | "receita" | "aporte_capital";
+type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
 
 export async function listChartAccounts(ownerId: number, grupo?: ChartAccountGrupo) {
   const db = await requireDb();
@@ -348,14 +366,12 @@ export async function deleteChartAccount(ownerId: number, id: number) {
   }
 }
 
-/** Semeia as contas padrão (por grupo) na primeira vez que o usuário acessa o plano de contas. */
+/** Semeia a conta principal padrão (uma por grupo/natureza) na primeira vez que o usuário acessa o plano de contas. */
 export async function seedDefaultChartAccountsIfNeeded(ownerId: number) {
   const existing = await listChartAccounts(ownerId);
   if (existing.length > 0) return existing;
-  for (const [grupo, nomes] of Object.entries(DEFAULT_CHART_ACCOUNTS) as [keyof typeof DEFAULT_CHART_ACCOUNTS, readonly string[]][]) {
-    for (const nome of nomes) {
-      await createChartAccount({ ownerId, grupo, nome, ativa: 1 });
-    }
+  for (const [grupo, nome] of Object.entries(DEFAULT_CHART_ACCOUNTS) as [keyof typeof DEFAULT_CHART_ACCOUNTS, string][]) {
+    await createChartAccount({ ownerId, grupo, nome, ativa: 1 });
   }
   return listChartAccounts(ownerId);
 }

@@ -15,7 +15,9 @@ import GestoresTemporada from "./pages/GestoresTemporada";
 import Contratos from "./pages/Contratos";
 import AlugueisReceber from "./pages/AlugueisReceber";
 import Inventario from "./pages/Inventario";
-import Lancamentos from "./pages/Lancamentos";
+import Receitas from "./pages/Receitas";
+import Despesas from "./pages/Despesas";
+import Aportes from "./pages/Aportes";
 import PlanoContas from "./pages/PlanoContas";
 import Reservas from "./pages/Reservas";
 import Dre from "./pages/Dre";
@@ -122,9 +124,19 @@ function App() {
                 <DashboardLayout><AlugueisReceber /></DashboardLayout>
               </RequireAuth>
             </Route>
-            <Route path="/lancamentos">
+            <Route path="/receitas">
               <RequireAuth>
-                <DashboardLayout><Lancamentos /></DashboardLayout>
+                <DashboardLayout><Receitas /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/despesas">
+              <RequireAuth>
+                <DashboardLayout><Despesas /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/aportes">
+              <RequireAuth>
+                <DashboardLayout><Aportes /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/plano-contas">

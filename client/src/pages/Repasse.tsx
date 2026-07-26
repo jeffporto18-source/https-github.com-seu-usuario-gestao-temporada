@@ -79,7 +79,6 @@ export default function Repasse() {
               <Row label="(−) Taxa Airbnb" value={`− ${brl(dre.taxaAirbnb)}`} muted />
               <Row label="(−) Comissão da administradora" value={`− ${brl(dre.comissao)}`} muted />
               <Row label="(−) Despesas operacionais" value={`− ${brl(dre.totalDespesas)}`} muted />
-              <Row label="(−) Investimentos" value={`− ${brl(dre.totalInvestimentos)}`} muted />
             </section>
 
             <div className="flex items-center justify-between rounded-lg bg-secondary p-4">

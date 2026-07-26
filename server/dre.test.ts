@@ -5,7 +5,7 @@ vi.mock("./db", () => ({
   getProperty: vi.fn(),
   getClient: vi.fn(),
   listReservations: vi.fn(),
-  listLedgerEntries: vi.fn(),
+  listLedgerEntriesNaCompetencia: vi.fn(),
 }));
 
 import * as db from "./db";
@@ -49,15 +49,12 @@ describe("dre.porUnidade", () => {
     (db.listReservations as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 1, codigo: "R1", valorBruto: "1800", taxaLimpeza: "200", taxaAirbnbPct: "4", noites: 3, checkin: new Date("2026-06-01"), checkout: new Date("2026-06-04") },
     ]);
-    (db.listLedgerEntries as ReturnType<typeof vi.fn>).mockImplementation((_ownerId: number, _propertyId: number, _competencia: string, grupo: string) => {
+    (db.listLedgerEntriesNaCompetencia as ReturnType<typeof vi.fn>).mockImplementation((_ownerId: number, _propertyId: number, _competencia: string, grupo: string) => {
       if (grupo === "despesa_variavel") {
         return Promise.resolve([
           { id: 1, categoria: "luz", valor: "150" },
           { id: 2, categoria: "condominio", valor: "300" },
         ]);
-      }
-      if (grupo === "investimento") {
-        return Promise.resolve([{ id: 1, categoria: "roupa_de_cama", valor: "100" }]);
       }
       return Promise.resolve([]);
     });
@@ -70,8 +67,7 @@ describe("dre.porUnidade", () => {
     expect(dre.comissao).toBe(400);
     expect(dre.repasseBruto).toBe(1520); // 2000 - 80 - 400
     expect(dre.totalDespesas).toBe(450);
-    expect(dre.totalInvestimentos).toBe(100);
-    expect(dre.resultadoProprietario).toBe(970); // 1520 - 450 - 100
+    expect(dre.resultadoProprietario).toBe(1070); // 1520 - 450
     expect(dre.totalReservas).toBe(1);
   });
 

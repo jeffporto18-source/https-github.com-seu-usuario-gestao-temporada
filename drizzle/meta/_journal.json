@@ -134,6 +134,13 @@
       "when": 1785090244960,
       "tag": "0018_free_form_chart_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1785094368256,
+      "tag": "0019_fixed_depth_chart_accounts",
+      "breakpoints": true
     }
   ]
 }

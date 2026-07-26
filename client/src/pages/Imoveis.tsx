@@ -29,9 +29,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Building2, Pencil, FileText, Upload, User, CheckCircle2, Circle, MoreHorizontal, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Building2, Pencil, FileText, Upload, User, CheckCircle2, Circle, MoreHorizontal, ExternalLink, Wallet } from "lucide-react";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
-import { brl, formatDate } from "@/lib/format";
+import { brl, formatDate, formatCompetencia, addMesesCompetencia } from "@/lib/format";
 
 interface PropertyForm {
   clientId: string;
@@ -389,6 +389,7 @@ interface ImovelRowProps {
 function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: ImovelRowProps) {
   const [dadosOpen, setDadosOpen] = useState(false);
   const [fichaOpen, setFichaOpen] = useState(false);
+  const [lancamentosOpen, setLancamentosOpen] = useState(false);
   const isLonga = p.tipoLocacao === "longa";
 
   const { data: contratos } = trpc.longTermContracts.list.useQuery({ propertyId: p.id }, { enabled: isLonga });
@@ -397,6 +398,11 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
   const { data: charges } = trpc.longTermContracts.charges.useQuery(
     { contractId: contrato?.id },
     { enabled: !!contrato && fichaOpen },
+  );
+
+  const { data: lancamentos } = trpc.ledgerEntries.list.useQuery(
+    { propertyId: p.id },
+    { enabled: lancamentosOpen },
   );
 
   const todasParcelas = charges ?? [];
@@ -451,6 +457,10 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
                 </DropdownMenuItem>
               </>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setLancamentosOpen(true)}>
+              <Wallet className="mr-2 h-3.5 w-3.5" /> Receitas, despesas e aportes
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
               <Trash2 className="mr-2 h-3.5 w-3.5" /> Excluir
@@ -563,6 +573,35 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
                   </div>
                 );
               })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={lancamentosOpen} onOpenChange={setLancamentosOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif">Receitas, despesas e aportes — {p.apelido}</DialogTitle>
+          </DialogHeader>
+          <div className="divide-y divide-border max-h-[420px] overflow-y-auto">
+            {!lancamentos?.length ? (
+              <p className="text-sm text-muted-foreground py-4">Nenhum lançamento cadastrado para este imóvel.</p>
+            ) : (
+              lancamentos.map((l) => (
+                <div key={l.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{l.descricao || l.categoria || "—"}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {l.categoria} · {l.qtdMeses > 1
+                        ? `${formatCompetencia(l.competenciaInicio)} → ${formatCompetencia(addMesesCompetencia(l.competenciaInicio, l.qtdMeses - 1))}`
+                        : formatCompetencia(l.competenciaInicio)}
+                    </p>
+                  </div>
+                  <span className={`tabular-nums text-sm font-medium shrink-0 ${l.grupo === "receita" ? "text-primary" : ""}`}>
+                    {l.grupo === "receita" ? "+ " : l.grupo === "aporte_capital" ? "" : "− "}{brl(l.valor)}
+                  </span>
+                </div>
+              ))
             )}
           </div>
         </DialogContent>

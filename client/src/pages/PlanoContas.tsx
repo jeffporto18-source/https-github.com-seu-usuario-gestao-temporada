@@ -17,15 +17,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Pencil, MoreHorizontal, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronRight, ChevronDown } from "lucide-react";
 import { PageHeader } from "./Clientes";
 
 type Grupo = "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
@@ -87,8 +81,8 @@ export default function PlanoContas() {
   return (
     <div className="max-w-4xl mx-auto">
       <PageHeader
-        title="Plano de Contas"
-        subtitle="Conta principal › conta › subconta › sub-subconta. Alimenta as Receitas, Despesas, Aportes e a DRE."
+        title="Plano de contas"
+        subtitle="Conta principal › conta › subconta (modalidade) › sub-subconta (despesa)."
         action={
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="bg-background" onClick={() => setExpanded(new Set(allIds))}>Expandir tudo</Button>
@@ -240,11 +234,12 @@ function AccountNode({
 }) {
   const filhos = childrenOf.get(conta.id) ?? [];
   const isOpen = expanded.has(conta.id);
+  const podeExpandir = depth < MAX_DEPTH;
 
   return (
     <div>
-      <div className="group flex items-center gap-2 px-4 py-2.5 hover:bg-secondary/40 transition-colors" style={{ paddingLeft: `${16 + depth * 20}px` }}>
-        {filhos.length > 0 ? (
+      <div className="flex items-center gap-2 px-4 py-2.5 hover:bg-secondary/40 transition-colors" style={{ paddingLeft: `${16 + depth * 20}px` }}>
+        {podeExpandir ? (
           <button onClick={() => onToggle(conta.id)} className="text-muted-foreground shrink-0">
             {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           </button>
@@ -253,27 +248,23 @@ function AccountNode({
         )}
         <span className={`flex-1 truncate ${depth === 0 ? "text-sm font-semibold" : "text-sm"}`}>{conta.nome}</span>
         <span className="text-[11px] text-muted-foreground shrink-0">{DEPTH_LABEL(depth)}</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 transition-opacity shrink-0">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {depth < MAX_DEPTH && (
-              <DropdownMenuItem onClick={() => onNovaSub(conta.id)}>
-                <Plus className="mr-2 h-3.5 w-3.5" /> Subconta
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => onEditar(conta)}>
-              <Pencil className="mr-2 h-3.5 w-3.5" /> Editar
-            </DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onExcluir(conta.id)}>
-              <Trash2 className="mr-2 h-3.5 w-3.5" /> Excluir
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {podeExpandir && (
+          <Button variant="outline" size="sm" className="h-7 bg-background text-xs shrink-0" onClick={() => onNovaSub(conta.id)}>
+            <Plus className="mr-1 h-3 w-3" /> {DEPTH_LABEL(depth + 1)}
+          </Button>
+        )}
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground shrink-0" onClick={() => onEditar(conta)}>
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" onClick={() => onExcluir(conta.id)}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
+      {podeExpandir && isOpen && filhos.length === 0 && (
+        <p className="text-xs text-muted-foreground py-2" style={{ paddingLeft: `${16 + (depth + 1) * 20 + 18}px` }}>
+          Nenhuma {DEPTH_LABEL(depth + 1).toLowerCase()} cadastrada ainda.
+        </p>
+      )}
       {isOpen && filhos.map((f) => (
         <AccountNode
           key={f.id}

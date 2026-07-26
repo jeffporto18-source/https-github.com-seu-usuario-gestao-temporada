@@ -108,6 +108,10 @@ export default function Reservas() {
       toast.error("Preencha código, valor e período.");
       return;
     }
+    if (!form.estrangeiro && !form.cpfHospede.trim()) {
+      toast.error("Informe o CPF do hóspede (obrigatório quando não é estrangeiro).");
+      return;
+    }
     if (editId) {
       update.mutate({
         id: editId,
@@ -191,21 +195,17 @@ export default function Reservas() {
                   <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" />
                   <p className="text-xs text-muted-foreground">Gera despesa automática conforme custo configurado no imóvel.</p>
                 </div>
-                <div className="grid grid-cols-3 gap-3 items-end">
+                <div className="grid grid-cols-2 gap-3 items-end">
                   <div className="grid gap-1.5">
                     <Label>Nome do hóspede</Label>
                     <Input value={form.nomeHospede} onChange={(e) => setForm({ ...form, nomeHospede: e.target.value })} placeholder="Nome completo" />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label>CPF do hóspede</Label>
-                    <Input value={form.cpfHospede} onChange={(e) => setForm({ ...form, cpfHospede: e.target.value })} placeholder="000.000.000-00" />
                   </div>
                   <div className="grid gap-1.5">
                     <Label>Hóspede estrangeiro?</Label>
                     <RadioGroup
                       className="flex items-center gap-4 h-9"
                       value={form.estrangeiro ? "sim" : "nao"}
-                      onValueChange={(v) => setForm({ ...form, estrangeiro: v === "sim" })}
+                      onValueChange={(v) => setForm({ ...form, estrangeiro: v === "sim", cpfHospede: v === "sim" ? "" : form.cpfHospede })}
                     >
                       <div className="flex items-center gap-1.5">
                         <RadioGroupItem value="nao" id="estrangeiro-nao" />
@@ -218,6 +218,12 @@ export default function Reservas() {
                     </RadioGroup>
                   </div>
                 </div>
+                {!form.estrangeiro && (
+                  <div className="grid gap-1.5">
+                    <Label>CPF do hóspede <span className="text-destructive">*</span></Label>
+                    <Input value={form.cpfHospede} onChange={(e) => setForm({ ...form, cpfHospede: e.target.value })} placeholder="000.000.000-00" />
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" className="bg-background" onClick={() => setOpen(false)}>Cancelar</Button>

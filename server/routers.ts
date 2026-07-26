@@ -860,6 +860,7 @@ export const appRouter = router({
           noites: z.number().int().positive(),
           faxinasUtilizadas: z.number().int().min(0).default(1),
           nomeHospede: z.string().optional(),
+          cpfHospede: z.string().optional(),
           estrangeiro: z.boolean().default(false),
         }),
       )
@@ -877,6 +878,7 @@ export const appRouter = router({
           faxinasUtilizadas: input.faxinasUtilizadas,
           competencia: input.checkin.slice(0, 7),
           nomeHospede: input.nomeHospede || null,
+          cpfHospede: input.cpfHospede || null,
           estrangeiro: input.estrangeiro ? 1 : 0,
         });
 
@@ -918,6 +920,7 @@ export const appRouter = router({
           noites: z.number().int().positive().optional(),
           faxinasUtilizadas: z.number().int().min(0).optional(),
           nomeHospede: z.string().optional(),
+          cpfHospede: z.string().optional(),
           estrangeiro: z.boolean().optional(),
         }),
       )

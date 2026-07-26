@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, FileText, CalendarDays, CheckCircle2, Loader2, Pencil, Upload, ExternalLink, User } from "lucide-react";
-import { brl, competenciaAtual } from "@/lib/format";
+import { brl, competenciaAtual, formatCpfCnpj } from "@/lib/format";
 import { PageHeader, EmptyState } from "./Clientes";
 import { UnitPeriodFilter } from "@/components/UnitPeriodFilter";
 
@@ -29,10 +29,11 @@ interface ReservaForm {
   checkout: string;
   faxinas: string;
   nomeHospede: string;
+  cpfHospede: string;
   estrangeiro: boolean;
 }
 
-const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "4", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", estrangeiro: false };
+const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "4", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", cpfHospede: "", estrangeiro: false };
 
 export default function Reservas() {
   const utils = trpc.useUtils();
@@ -96,6 +97,7 @@ export default function Reservas() {
       checkout: new Date(r.checkout).toISOString().slice(0, 10),
       faxinas: String(r.faxinasUtilizadas ?? 1),
       nomeHospede: r.nomeHospede || "",
+      cpfHospede: r.cpfHospede || "",
       estrangeiro: r.estrangeiro === 1,
     });
     setOpen(true);
@@ -118,6 +120,7 @@ export default function Reservas() {
         noites: noites(form.checkin, form.checkout),
         faxinasUtilizadas: Number(form.faxinas) || 1,
         nomeHospede: form.nomeHospede || undefined,
+        cpfHospede: form.cpfHospede || undefined,
         estrangeiro: form.estrangeiro,
       });
     } else {
@@ -132,6 +135,7 @@ export default function Reservas() {
         noites: noites(form.checkin, form.checkout),
         faxinasUtilizadas: Number(form.faxinas) || 1,
         nomeHospede: form.nomeHospede || undefined,
+        cpfHospede: form.cpfHospede || undefined,
         estrangeiro: form.estrangeiro,
       });
     }
@@ -187,10 +191,14 @@ export default function Reservas() {
                   <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" />
                   <p className="text-xs text-muted-foreground">Gera despesa automática conforme custo configurado no imóvel.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3 items-end">
+                <div className="grid grid-cols-3 gap-3 items-end">
                   <div className="grid gap-1.5">
                     <Label>Nome do hóspede</Label>
                     <Input value={form.nomeHospede} onChange={(e) => setForm({ ...form, nomeHospede: e.target.value })} placeholder="Nome completo" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>CPF do hóspede</Label>
+                    <Input value={form.cpfHospede} onChange={(e) => setForm({ ...form, cpfHospede: e.target.value })} placeholder="000.000.000-00" />
                   </div>
                   <div className="grid gap-1.5">
                     <Label>Hóspede estrangeiro?</Label>
@@ -294,6 +302,7 @@ function ReservaCard({
     noites: number;
     faxinasUtilizadas: number | null;
     nomeHospede: string | null;
+    cpfHospede: string | null;
     estrangeiro: number;
     documentoUrl: string | null;
   };
@@ -345,6 +354,7 @@ function ReservaCard({
             {reserva.nomeHospede && (
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                 <User className="h-3 w-3" /> {reserva.nomeHospede}
+                {reserva.cpfHospede && ` · ${formatCpfCnpj(reserva.cpfHospede)}`}
                 {reserva.estrangeiro === 1 && <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0 h-4">Estrangeiro</Badge>}
               </p>
             )}

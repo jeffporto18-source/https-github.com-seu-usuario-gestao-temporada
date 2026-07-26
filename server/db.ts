@@ -9,10 +9,8 @@ import {
   investments,
   reservations,
   invoices,
-  expenseCategoriesTable,
-  DEFAULT_EXPENSE_CATEGORIES,
-  investmentCategoriesTable,
-  DEFAULT_INVESTMENT_CATEGORIES,
+  chartAccounts,
+  DEFAULT_CHART_ACCOUNTS,
   imobiliarias,
   curtaManagers,
   guaranteeTypes,
@@ -26,8 +24,7 @@ import {
   InsertInvestment,
   InsertReservation,
   InsertInvoice,
-  InsertExpenseCategory,
-  InsertInvestmentCategory,
+  InsertChartAccount,
   InsertImobiliaria,
   InsertCurtaManager,
   InsertGuaranteeType,
@@ -184,37 +181,6 @@ export async function deleteExpense(ownerId: number, id: number) {
   await db.delete(expenses).where(and(eq(expenses.ownerId, ownerId), eq(expenses.id, id)));
 }
 
-// ----------------------------------------------------------- expense categories
-export async function listExpenseCategories(ownerId: number) {
-  const db = await requireDb();
-  return db.select().from(expenseCategoriesTable).where(eq(expenseCategoriesTable.ownerId, ownerId)).orderBy(expenseCategoriesTable.id);
-}
-
-export async function createExpenseCategory(data: InsertExpenseCategory) {
-  const db = await requireDb();
-  await db.insert(expenseCategoriesTable).values(data);
-}
-
-export async function updateExpenseCategory(ownerId: number, id: number, data: Partial<Pick<InsertExpenseCategory, "nome" | "ativa">>) {
-  const db = await requireDb();
-  await db.update(expenseCategoriesTable).set(data).where(and(eq(expenseCategoriesTable.ownerId, ownerId), eq(expenseCategoriesTable.id, id)));
-}
-
-export async function deleteExpenseCategory(ownerId: number, id: number) {
-  const db = await requireDb();
-  await db.delete(expenseCategoriesTable).where(and(eq(expenseCategoriesTable.ownerId, ownerId), eq(expenseCategoriesTable.id, id)));
-}
-
-/** Seed default categories if user has none yet */
-export async function seedDefaultCategoriesIfNeeded(ownerId: number) {
-  const existing = await listExpenseCategories(ownerId);
-  if (existing.length > 0) return existing;
-  for (const nome of DEFAULT_EXPENSE_CATEGORIES) {
-    await createExpenseCategory({ ownerId, nome, ativa: 1 });
-  }
-  return listExpenseCategories(ownerId);
-}
-
 // ----------------------------------------------------------- investments
 export async function listInvestments(ownerId: number, propertyId?: number, competencia?: string) {
   const db = await requireDb();
@@ -360,35 +326,42 @@ export async function getUserById(userId: number) {
   return rows[0] || null;
 }
 
-// ----------------------------------------------------------- investment categories
-export async function listInvestmentCategories(ownerId: number) {
+// ------------------------------------------------------- plano de contas (chart accounts)
+export async function listChartAccounts(ownerId: number, grupo?: "despesa_fixa" | "despesa_variavel" | "investimento") {
   const db = await requireDb();
-  return db.select().from(investmentCategoriesTable).where(eq(investmentCategoriesTable.ownerId, ownerId)).orderBy(investmentCategoriesTable.id);
+  const conds = [eq(chartAccounts.ownerId, ownerId)];
+  if (grupo) conds.push(eq(chartAccounts.grupo, grupo));
+  return db.select().from(chartAccounts).where(and(...conds)).orderBy(chartAccounts.grupo, chartAccounts.id);
 }
 
-export async function createInvestmentCategory(data: InsertInvestmentCategory) {
+export async function createChartAccount(data: InsertChartAccount) {
   const db = await requireDb();
-  await db.insert(investmentCategoriesTable).values(data);
+  const res = await db.insert(chartAccounts).values(data);
+  return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
 }
 
-export async function updateInvestmentCategory(ownerId: number, id: number, data: Partial<Pick<InsertInvestmentCategory, "nome" | "ativa">>) {
+export async function updateChartAccount(ownerId: number, id: number, data: Partial<Pick<InsertChartAccount, "nome" | "ativa">>) {
   const db = await requireDb();
-  await db.update(investmentCategoriesTable).set(data).where(and(eq(investmentCategoriesTable.ownerId, ownerId), eq(investmentCategoriesTable.id, id)));
+  await db.update(chartAccounts).set(data).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.id, id)));
 }
 
-export async function deleteInvestmentCategory(ownerId: number, id: number) {
+/** Remove a conta e suas sub-contas (contas filhas que apontam para ela via parentId). */
+export async function deleteChartAccount(ownerId: number, id: number) {
   const db = await requireDb();
-  await db.delete(investmentCategoriesTable).where(and(eq(investmentCategoriesTable.ownerId, ownerId), eq(investmentCategoriesTable.id, id)));
+  await db.delete(chartAccounts).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.parentId, id)));
+  await db.delete(chartAccounts).where(and(eq(chartAccounts.ownerId, ownerId), eq(chartAccounts.id, id)));
 }
 
-/** Seed default investment categories if user has none yet */
-export async function seedDefaultInvestmentCategoriesIfNeeded(ownerId: number) {
-  const existing = await listInvestmentCategories(ownerId);
+/** Semeia as contas padrão (por grupo) na primeira vez que o usuário acessa o plano de contas. */
+export async function seedDefaultChartAccountsIfNeeded(ownerId: number) {
+  const existing = await listChartAccounts(ownerId);
   if (existing.length > 0) return existing;
-  for (const nome of DEFAULT_INVESTMENT_CATEGORIES) {
-    await createInvestmentCategory({ ownerId, nome, ativa: 1 });
+  for (const [grupo, nomes] of Object.entries(DEFAULT_CHART_ACCOUNTS) as [keyof typeof DEFAULT_CHART_ACCOUNTS, readonly string[]][]) {
+    for (const nome of nomes) {
+      await createChartAccount({ ownerId, grupo, nome, ativa: 1 });
+    }
   }
-  return listInvestmentCategories(ownerId);
+  return listChartAccounts(ownerId);
 }
 
 // ----------------------------------------------------------------- imobiliarias
@@ -526,6 +499,15 @@ export async function listContractRentCharges(ownerId: number, contractId?: numb
   const conds = [eq(contractRentCharges.ownerId, ownerId)];
   if (contractId) conds.push(eq(contractRentCharges.contractId, contractId));
   return db.select().from(contractRentCharges).where(and(...conds)).orderBy(contractRentCharges.dataVencimento);
+}
+
+/** Parcelas de aluguel de longa duração de um imóvel numa competência específica (usado na DRE). */
+export async function listContractRentChargesByProperty(ownerId: number, propertyId: number, competencia: string) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(contractRentCharges)
+    .where(and(eq(contractRentCharges.ownerId, ownerId), eq(contractRentCharges.propertyId, propertyId), eq(contractRentCharges.competencia, competencia)));
 }
 
 export async function getContractRentCharge(ownerId: number, id: number) {

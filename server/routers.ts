@@ -8,9 +8,24 @@ import * as db from "./db";
 import { processarOperacao, emitirNfse, COD_LOCACAO, COD_INTERMEDIACAO } from "./fiscal";
 import { ENV } from "./_core/env";
 
-// Categorias de despesas e investimentos agora são dinâmicas (tabelas expense_categories / investment_categories)
+// Plano de contas (chart_accounts): grupos fixos despesa_fixa / despesa_variavel / investimento,
+// com contas e sub-contas (parentId). Usado por despesas, investimentos e pelo desconto de aluguel.
 
 const num = (v: number | string | null) => Number(v ?? 0);
+
+/** Resolve uma conta do plano de contas, validando que pertence a um dos grupos permitidos, e monta o nome exibido ("Conta > Sub-conta"). */
+async function resolveChartAccount(
+  ownerId: number,
+  chartAccountId: number,
+  gruposPermitidos: Array<"despesa_fixa" | "despesa_variavel" | "investimento">,
+) {
+  const contas = await db.listChartAccounts(ownerId);
+  const conta = contas.find((c) => c.id === chartAccountId);
+  if (!conta) throw new Error("Conta do plano de contas não encontrada.");
+  if (!gruposPermitidos.includes(conta.grupo)) throw new Error("Conta selecionada não pertence ao grupo esperado.");
+  const nome = conta.parentId ? `${contas.find((c) => c.id === conta.parentId)?.nome ?? ""} > ${conta.nome}` : conta.nome;
+  return { conta, nome };
+}
 
 const competenciaSchema = z.string().regex(/^\d{4}-\d{2}$/);
 
@@ -365,15 +380,28 @@ export const appRouter = router({
   }),
 
   // ------------------------------------------------------------- expense categories
-  expenseCategories: router({
-    list: protectedProcedure.query(({ ctx }) => db.seedDefaultCategoriesIfNeeded(ctx.user.id)),
+  chartAccounts: router({
+    list: protectedProcedure
+      .input(z.object({ grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento"]).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const all = await db.seedDefaultChartAccountsIfNeeded(ctx.user.id);
+        return input?.grupo ? all.filter((a) => a.grupo === input.grupo) : all;
+      }),
     create: protectedProcedure
-      .input(z.object({ nome: z.string().min(1) }))
-      .mutation(({ ctx, input }) => db.createExpenseCategory({ ownerId: ctx.user.id, nome: input.nome, ativa: 1 })),
+      .input(
+        z.object({
+          grupo: z.enum(["despesa_fixa", "despesa_variavel", "investimento"]),
+          nome: z.string().min(1),
+          parentId: z.number().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createChartAccount({ ownerId: ctx.user.id, grupo: input.grupo, nome: input.nome, parentId: input.parentId ?? null, ativa: 1 }),
+      ),
     update: protectedProcedure
       .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
-      .mutation(({ ctx, input }) => db.updateExpenseCategory(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteExpenseCategory(ctx.user.id, input.id)),
+      .mutation(({ ctx, input }) => db.updateChartAccount(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteChartAccount(ctx.user.id, input.id)),
   }),
 
   // ------------------------------------------------------------- expenses
@@ -385,53 +413,50 @@ export const appRouter = router({
       .input(
         z.object({
           propertyId: z.number(),
-          categoria: z.string().min(1),
+          chartAccountId: z.number(),
           valor: z.number().positive(),
           competencia: z.string().regex(/^\d{4}-\d{2}$/),
           descricao: z.string().optional(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        db.createExpense({
+      .mutation(async ({ ctx, input }) => {
+        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
+        return db.createExpense({
           ownerId: ctx.user.id,
           propertyId: input.propertyId,
-          categoria: input.categoria,
+          chartAccountId: conta.id,
+          tipoDespesa: conta.grupo === "despesa_fixa" ? "fixa" : "variavel",
+          categoria: nome,
           valor: String(input.valor),
           competencia: input.competencia,
           descricao: input.descricao || null,
-        }),
-      ),
+        });
+      }),
     update: protectedProcedure
       .input(
         z.object({
           id: z.number(),
           propertyId: z.number().optional(),
-          categoria: z.string().optional(),
+          chartAccountId: z.number().optional(),
           valor: z.number().positive().optional(),
           competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
           descricao: z.string().optional(),
         }),
       )
-      .mutation(({ ctx, input }) => {
-        const { id, valor, ...rest } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { id, valor, chartAccountId, ...rest } = input;
+        let contaFields = {};
+        if (chartAccountId !== undefined) {
+          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, ["despesa_fixa", "despesa_variavel"]);
+          contaFields = { chartAccountId: conta.id, tipoDespesa: conta.grupo === "despesa_fixa" ? "fixa" : "variavel", categoria: nome };
+        }
         return db.updateExpense(ctx.user.id, id, {
           ...rest,
+          ...contaFields,
           ...(valor !== undefined ? { valor: String(valor) } : {}),
         });
       }),
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteExpense(ctx.user.id, input.id)),
-  }),
-
-  // ------------------------------------------------------- investment categories
-  investmentCategories: router({
-    list: protectedProcedure.query(({ ctx }) => db.seedDefaultInvestmentCategoriesIfNeeded(ctx.user.id)),
-    create: protectedProcedure
-      .input(z.object({ nome: z.string().min(1) }))
-      .mutation(({ ctx, input }) => db.createInvestmentCategory({ ownerId: ctx.user.id, nome: input.nome, ativa: 1 })),
-    update: protectedProcedure
-      .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
-      .mutation(({ ctx, input }) => db.updateInvestmentCategory(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInvestmentCategory(ctx.user.id, input.id)),
   }),
 
   // ---------------------------------------------------------- investments
@@ -443,37 +468,45 @@ export const appRouter = router({
       .input(
         z.object({
           propertyId: z.number(),
-          categoria: z.string().min(1),
+          chartAccountId: z.number(),
           valor: z.number().positive(),
           competencia: z.string().regex(/^\d{4}-\d{2}$/),
           descricao: z.string().optional(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        db.createInvestment({
+      .mutation(async ({ ctx, input }) => {
+        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, ["investimento"]);
+        return db.createInvestment({
           ownerId: ctx.user.id,
           propertyId: input.propertyId,
-          categoria: input.categoria,
+          chartAccountId: conta.id,
+          categoria: nome,
           valor: String(input.valor),
           competencia: input.competencia,
           descricao: input.descricao || null,
-        }),
-      ),
+        });
+      }),
     update: protectedProcedure
       .input(
         z.object({
           id: z.number(),
           propertyId: z.number().optional(),
-          categoria: z.string().min(1).optional(),
+          chartAccountId: z.number().optional(),
           valor: z.number().positive().optional(),
           competencia: z.string().regex(/^\d{4}-\d{2}$/).optional(),
           descricao: z.string().optional(),
         }),
       )
-      .mutation(({ ctx, input }) => {
-        const { id, valor, ...rest } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { id, valor, chartAccountId, ...rest } = input;
+        let contaFields = {};
+        if (chartAccountId !== undefined) {
+          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, ["investimento"]);
+          contaFields = { chartAccountId: conta.id, categoria: nome };
+        }
         return db.updateInvestment(ctx.user.id, id, {
           ...rest,
+          ...contaFields,
           ...(valor !== undefined ? { valor: String(valor) } : {}),
         });
       }),
@@ -690,7 +723,7 @@ export const appRouter = router({
           dataRecebimento: z.string().optional(),
           multaJuros: z.number().min(0).default(0),
           desconto: z.number().min(0).default(0),
-          descontoCategoriaId: z.number().optional(),
+          descontoChartAccountId: z.number().optional(),
           descontoDescricao: z.string().optional(),
         }),
       )
@@ -705,18 +738,17 @@ export const appRouter = router({
 
         let descontoExpenseId: number | null = null;
         if (input.desconto > 0) {
-          // Categoria é opcional: se a pessoa descreveu o motivo, não precisa classificar por categoria (e vice-versa).
-          let categoria: { id: number; nome: string } | null = null;
-          if (input.descontoCategoriaId) {
-            const categorias = await db.listExpenseCategories(ctx.user.id);
-            categoria = categorias.find((c) => c.id === input.descontoCategoriaId) ?? null;
-            if (!categoria) throw new Error("Categoria de despesa não encontrada.");
+          // Conta é opcional: se a pessoa descreveu o motivo, não precisa classificar por conta (e vice-versa).
+          let contaResolvida: { conta: { id: number; grupo: "despesa_fixa" | "despesa_variavel" | "investimento" }; nome: string } | null = null;
+          if (input.descontoChartAccountId) {
+            contaResolvida = await resolveChartAccount(ctx.user.id, input.descontoChartAccountId, ["despesa_fixa", "despesa_variavel"]);
           }
           descontoExpenseId = await db.createExpense({
             ownerId: ctx.user.id,
             propertyId: charge.propertyId,
-            categoryId: categoria?.id ?? null,
-            categoria: categoria?.nome ?? null,
+            chartAccountId: contaResolvida?.conta.id ?? null,
+            tipoDespesa: contaResolvida ? (contaResolvida.conta.grupo === "despesa_fixa" ? "fixa" : "variavel") : "variavel",
+            categoria: contaResolvida?.nome ?? null,
             valor: String(input.desconto),
             competencia: charge.competencia,
             descricao: input.descontoDescricao?.trim() || `Desconto concedido — aluguel ${charge.competencia}`,
@@ -818,7 +850,8 @@ export const appRouter = router({
             await db.createExpense({
               ownerId: ctx.user.id,
               propertyId: input.propertyId,
-              categoria: "faxineira",
+              categoria: "Faxineira",
+              tipoDespesa: "variavel",
               valor: String(totalFaxina),
               competencia: input.checkin.slice(0, 7),
               descricao: `Faxina automática — Reserva ${input.codigo} (${input.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
@@ -877,7 +910,8 @@ export const appRouter = router({
                 await db.createExpense({
                   ownerId: ctx.user.id,
                   propertyId: reserva.propertyId,
-                  categoria: "faxineira",
+                  categoria: "Faxineira",
+                  tipoDespesa: "variavel",
                   valor: String(custoUnit * faxinasUtilizadas),
                   competencia: reserva.competencia,
                   descricao: `Faxina automática — Reserva ${reserva.codigo} (${faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
@@ -938,7 +972,8 @@ export const appRouter = router({
             await db.createExpense({
               ownerId: ctx.user.id,
               propertyId: input.propertyId,
-              categoria: "faxineira",
+              categoria: "Faxineira",
+              tipoDespesa: "variavel",
               valor: String(totalFaxina),
               competencia: row.checkin.slice(0, 7),
               descricao: `Faxina automática — Reserva ${row.codigo} (${row.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
@@ -1061,6 +1096,7 @@ export const appRouter = router({
         let ibs = 0;
         let liquidoProp = 0;
         const comissaoPct = num(prop.comissaoPct);
+        let totalParcelasLonga = 0;
 
         for (const r of reservas) {
           const res = processarOperacao({
@@ -1085,7 +1121,27 @@ export const appRouter = router({
           liquidoProp += res.liquidoProprietario;
         }
 
-        const totalDespesas = despesas.reduce((s, e) => s + num(e.valor), 0);
+        // Receita de aluguel de longa duração: parcelas do contrato com competência neste mês.
+        if (prop.tipoLocacao === "longa") {
+          const parcelas = await db.listContractRentChargesByProperty(ctx.user.id, input.propertyId, input.competencia);
+          const contratos = await db.listLongTermContracts(ctx.user.id, input.propertyId);
+          const contrato = contratos[0];
+          const comissaoPctLonga = contrato && contrato.tipoAdministracao !== "propria" ? num(contrato.comissaoPct) : 0;
+          for (const p of parcelas) {
+            const valorParcela = num(p.valor);
+            const comissaoParcela = valorParcela * (comissaoPctLonga / 100);
+            receitaBruta += valorParcela;
+            comissao += comissaoParcela;
+            liquidoProp += valorParcela - comissaoParcela;
+            totalParcelasLonga++;
+          }
+        }
+
+        const despesasFixas = despesas.filter((e) => e.tipoDespesa === "fixa").map((e) => ({ ...e, valor: num(e.valor) }));
+        const despesasVariaveis = despesas.filter((e) => e.tipoDespesa !== "fixa").map((e) => ({ ...e, valor: num(e.valor) }));
+        const totalDespesasFixas = despesasFixas.reduce((s, e) => s + e.valor, 0);
+        const totalDespesasVariaveis = despesasVariaveis.reduce((s, e) => s + e.valor, 0);
+        const totalDespesas = totalDespesasFixas + totalDespesasVariaveis;
         const totalInvestimentos = investimentos.reduce((s, i) => s + num(i.valor), 0);
         const resultadoProprietario = liquidoProp - totalDespesas - totalInvestimentos;
 
@@ -1095,14 +1151,17 @@ export const appRouter = router({
           propriedade: prop,
           cliente,
           competencia: input.competencia,
-          totalReservas: reservas.length,
+          totalReservas: reservas.length + totalParcelasLonga,
           receitaBruta: round2(receitaBruta),
           taxaAirbnb: round2(taxaAirbnb),
           comissao: round2(comissao),
           cbs: round2(cbs),
           ibs: round2(ibs),
           repasseBruto: round2(liquidoProp),
-          despesas: despesas.map((e) => ({ ...e, valor: num(e.valor) })),
+          despesasFixas,
+          totalDespesasFixas: round2(totalDespesasFixas),
+          despesasVariaveis,
+          totalDespesasVariaveis: round2(totalDespesasVariaveis),
           totalDespesas: round2(totalDespesas),
           investimentos: investimentos.map((i) => ({ ...i, valor: num(i.valor) })),
           totalInvestimentos: round2(totalInvestimentos),

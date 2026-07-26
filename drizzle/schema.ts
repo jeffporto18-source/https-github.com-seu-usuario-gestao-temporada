@@ -98,40 +98,39 @@ export type Property = typeof properties.$inferSelect;
 export type InsertProperty = typeof properties.$inferInsert;
 
 /**
- * Categorias de despesas configuráveis pela administradora.
- * Categorias padrão são pré-criadas no primeiro acesso.
+ * Plano de contas: grupos fixos (despesa fixa, despesa variável, investimento),
+ * com contas e sub-contas (parentId aponta para outra linha do mesmo grupo).
  */
-export const expenseCategoriesTable = mysqlTable("expense_categories", {
+export const chartAccounts = mysqlTable("chart_accounts", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
+  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "investimento"]).notNull(),
   nome: varchar("nome", { length: 100 }).notNull(),
-  ativa: int("ativa").notNull().default(1), // 1 = ativa, 0 = inativa
+  parentId: int("parentId"), // null = conta principal; caso contrário, sub-conta de outra chart_accounts.id
+  ativa: int("ativa").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export type ExpenseCategory = typeof expenseCategoriesTable.$inferSelect;
-export type InsertExpenseCategory = typeof expenseCategoriesTable.$inferInsert;
+export type ChartAccount = typeof chartAccounts.$inferSelect;
+export type InsertChartAccount = typeof chartAccounts.$inferInsert;
 
-/** Categorias padrão para seeding automático */
-export const DEFAULT_EXPENSE_CATEGORIES = [
-  "Luz",
-  "Gás",
-  "IPTU",
-  "Condomínio",
-  "Faxineira",
-  "Material de Limpeza",
-  "Kit Banheiro",
-] as const;
+/** Contas padrão para seeding automático, por grupo */
+export const DEFAULT_CHART_ACCOUNTS: Record<"despesa_fixa" | "despesa_variavel" | "investimento", readonly string[]> = {
+  despesa_fixa: ["IPTU", "Condomínio", "Luz", "Gás"],
+  despesa_variavel: ["Faxineira", "Material de Limpeza", "Kit Banheiro"],
+  investimento: ["Roupa de cama", "Acessórios", "Outros itens de enxoval"],
+};
 
 /**
- * Despesas operacionais por unidade.
+ * Despesas operacionais por unidade, classificadas no plano de contas.
  */
 export const expenses = mysqlTable("expenses", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
   propertyId: int("propertyId").notNull(),
-  categoryId: int("categoryId"), // referencia expense_categories.id (null para legado)
-  categoria: varchar("categoria", { length: 100 }), // nome da categoria (denormalizado para consulta rápida)
+  chartAccountId: int("chartAccountId"), // referencia chart_accounts.id (null para legado)
+  tipoDespesa: mysqlEnum("tipoDespesa", ["fixa", "variavel"]), // espelha o grupo da conta, para consulta rápida na DRE
+  categoria: varchar("categoria", { length: 100 }), // nome da conta (denormalizado para consulta rápida)
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
   competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
   descricao: varchar("descricao", { length: 500 }),
@@ -145,34 +144,13 @@ export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = typeof expenses.$inferInsert;
 
 /**
- * Categorias de investimento (enxoval) configuráveis pela administradora.
- * Mesmo padrão de expense_categories.
- */
-export const investmentCategoriesTable = mysqlTable("investment_categories", {
-  id: int("id").autoincrement().primaryKey(),
-  ownerId: int("ownerId").notNull(),
-  nome: varchar("nome", { length: 100 }).notNull(),
-  ativa: int("ativa").notNull().default(1),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-export type InvestmentCategory = typeof investmentCategoriesTable.$inferSelect;
-export type InsertInvestmentCategory = typeof investmentCategoriesTable.$inferInsert;
-
-/** Categorias padrão para seeding automático */
-export const DEFAULT_INVESTMENT_CATEGORIES = [
-  "Roupa de cama",
-  "Acessórios",
-  "Outros itens de enxoval",
-] as const;
-
-/**
- * Investimentos por unidade (enxoval / acessórios).
+ * Investimentos por unidade (enxoval / acessórios), classificados no plano de contas.
  */
 export const investments = mysqlTable("investments", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
   propertyId: int("propertyId").notNull(),
+  chartAccountId: int("chartAccountId"), // referencia chart_accounts.id (null para legado)
   categoria: varchar("categoria", { length: 100 }).notNull(),
   valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
   competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"

@@ -45,7 +45,7 @@ export default function Dre() {
               <div>
                 <h2 className="font-serif text-xl font-semibold">{dre.propriedade.apelido}</h2>
                 <p className="text-sm text-muted-foreground">
-                  {dre.cliente?.nome} · {dre.totalReservas} reservas · comp. {competencia}
+                  {dre.cliente?.nome} · {dre.totalReservas} {dre.propriedade.tipoLocacao === "longa" ? "parcela(s) de aluguel" : "reservas"} · comp. {competencia}
                 </p>
               </div>
             </div>
@@ -57,15 +57,25 @@ export default function Dre() {
               <Divider />
               <Line label="(=) Repasse bruto ao proprietário" value={brl(dre.repasseBruto)} bold />
 
-              {dre.despesas.length > 0 && (
+              {dre.despesasFixas.length > 0 && (
                 <>
-                  <SectionLabel>Despesas operacionais</SectionLabel>
-                  {dre.despesas.map((e) => (
+                  <SectionLabel>Despesas fixas</SectionLabel>
+                  {dre.despesasFixas.map((e) => (
                     <Line key={e.id} label={e.categoria || "Despesa"} value={`− ${brl(e.valor)}`} sub small />
                   ))}
                 </>
               )}
-              <Line label="(−) Total de despesas" value={`− ${brl(dre.totalDespesas)}`} sub />
+              <Line label="(−) Total de despesas fixas" value={`− ${brl(dre.totalDespesasFixas)}`} sub />
+
+              {dre.despesasVariaveis.length > 0 && (
+                <>
+                  <SectionLabel>Despesas variáveis</SectionLabel>
+                  {dre.despesasVariaveis.map((e) => (
+                    <Line key={e.id} label={e.categoria || "Despesa"} value={`− ${brl(e.valor)}`} sub small />
+                  ))}
+                </>
+              )}
+              <Line label="(−) Total de despesas variáveis" value={`− ${brl(dre.totalDespesasVariaveis)}`} sub />
 
               {dre.investimentos.length > 0 && (
                 <>

@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/select";
 import { competencias } from "@/lib/format";
 
-type Prop = { id: number; apelido: string };
+type Prop = { id: number; apelido: string; tipoLocacao?: string };
 
 export function UnitPeriodFilter({
   properties,
@@ -36,6 +36,11 @@ export function UnitPeriodFilter({
           {properties?.map((p) => (
             <SelectItem key={p.id} value={String(p.id)}>
               {p.apelido}
+              {p.tipoLocacao && (
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  ({p.tipoLocacao === "longa" ? "longa" : "curta"})
+                </span>
+              )}
             </SelectItem>
           ))}
         </SelectContent>

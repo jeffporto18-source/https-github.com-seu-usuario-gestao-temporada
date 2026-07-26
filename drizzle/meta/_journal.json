@@ -120,6 +120,13 @@
       "when": 1784493069885,
       "tag": "0016_add_charge_multa_desconto",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1785087220600,
+      "tag": "0017_add_chart_of_accounts",
+      "breakpoints": true
     }
   ]
 }

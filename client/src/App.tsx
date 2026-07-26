@@ -15,8 +15,8 @@ import GestoresTemporada from "./pages/GestoresTemporada";
 import Contratos from "./pages/Contratos";
 import AlugueisReceber from "./pages/AlugueisReceber";
 import Inventario from "./pages/Inventario";
-import Despesas from "./pages/Despesas";
-import Investimentos from "./pages/Investimentos";
+import Lancamentos from "./pages/Lancamentos";
+import PlanoContas from "./pages/PlanoContas";
 import Reservas from "./pages/Reservas";
 import Dre from "./pages/Dre";
 import Repasse from "./pages/Repasse";
@@ -122,14 +122,14 @@ function App() {
                 <DashboardLayout><AlugueisReceber /></DashboardLayout>
               </RequireAuth>
             </Route>
-            <Route path="/despesas">
+            <Route path="/lancamentos">
               <RequireAuth>
-                <DashboardLayout><Despesas /></DashboardLayout>
+                <DashboardLayout><Lancamentos /></DashboardLayout>
               </RequireAuth>
             </Route>
-            <Route path="/investimentos">
+            <Route path="/plano-contas">
               <RequireAuth>
-                <DashboardLayout><Investimentos /></DashboardLayout>
+                <DashboardLayout><PlanoContas /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/inventario">

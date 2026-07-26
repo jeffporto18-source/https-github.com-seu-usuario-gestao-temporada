@@ -67,16 +67,19 @@ interface LancamentoManagerProps {
   grupos: Grupo[];
   contraparteLabel: string;
   contraparteholder: string;
+  contraparteFornecedor?: boolean;
   submitLabel: string;
   emptyLabel: string;
 }
 
 /** Página compartilhada de lançamento recorrente (Receitas, Despesas, Aportes): imóvel primeiro, depois conta do plano. */
-export default function LancamentoManager({ titulo, subtitulo, grupos, contraparteLabel, contraparteholder, submitLabel, emptyLabel }: LancamentoManagerProps) {
+export default function LancamentoManager({ titulo, subtitulo, grupos, contraparteLabel, contraparteholder, contraparteFornecedor, submitLabel, emptyLabel }: LancamentoManagerProps) {
   const utils = trpc.useUtils();
   const { data: imoveis } = trpc.properties.list.useQuery();
   const { data: contasTodas } = trpc.chartAccounts.list.useQuery({});
   const { data: entriesTodos, isLoading } = trpc.ledgerEntries.list.useQuery({});
+  const { data: fornecedoresTodos } = trpc.fornecedores.list.useQuery(undefined, { enabled: !!contraparteFornecedor });
+  const fornecedoresAtivos = useMemo(() => (fornecedoresTodos ?? []).filter((f) => f.ativo === 1), [fornecedoresTodos]);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -219,7 +222,23 @@ export default function LancamentoManager({ titulo, subtitulo, grupos, contrapar
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="grid gap-1.5">
               <Label>{contraparteLabel}</Label>
-              <Input value={form.contraparte} onChange={(e) => setForm((f) => ({ ...f, contraparte: e.target.value }))} placeholder={contraparteholder} />
+              {contraparteFornecedor ? (
+                <div className="flex gap-2">
+                  <Select value={form.contraparte} onValueChange={(v) => setForm((f) => ({ ...f, contraparte: v }))}>
+                    <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione o fornecedor..." /></SelectTrigger>
+                    <SelectContent>
+                      {fornecedoresAtivos.map((fo) => (
+                        <SelectItem key={fo.id} value={fo.nome}>{fo.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button type="button" variant="outline" size="icon" className="bg-background shrink-0" asChild title="Gerenciar fornecedores">
+                    <Link href="/fornecedores"><Settings className="h-4 w-4" /></Link>
+                  </Button>
+                </div>
+              ) : (
+                <Input value={form.contraparte} onChange={(e) => setForm((f) => ({ ...f, contraparte: e.target.value }))} placeholder={contraparteholder} />
+              )}
             </div>
             <div className="grid gap-1.5">
               <Label>Valor (R$)</Label>

@@ -18,6 +18,7 @@ import Inventario from "./pages/Inventario";
 import Receitas from "./pages/Receitas";
 import Despesas from "./pages/Despesas";
 import Aportes from "./pages/Aportes";
+import Fornecedores from "./pages/Fornecedores";
 import PlanoContas from "./pages/PlanoContas";
 import Reservas from "./pages/Reservas";
 import Dre from "./pages/Dre";
@@ -137,6 +138,11 @@ function App() {
             <Route path="/aportes">
               <RequireAuth>
                 <DashboardLayout><Aportes /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/fornecedores">
+              <RequireAuth>
+                <DashboardLayout><Fornecedores /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/plano-contas">

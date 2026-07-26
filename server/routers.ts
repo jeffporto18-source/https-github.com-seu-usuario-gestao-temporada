@@ -521,6 +521,46 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteGuaranteeType(ctx.user.id, input.id)),
   }),
 
+  // ------------------------------------------------------------- fornecedores
+  fornecedores: router({
+    list: protectedProcedure.query(({ ctx }) => db.listFornecedores(ctx.user.id)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          nome: z.string().min(1),
+          cpfCnpj: z.string().optional(),
+          telefone: z.string().optional(),
+          email: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        db.createFornecedor({
+          ownerId: ctx.user.id,
+          nome: input.nome,
+          cpfCnpj: input.cpfCnpj || null,
+          telefone: input.telefone || null,
+          email: input.email || null,
+          ativo: 1,
+        }),
+      ),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          nome: z.string().optional(),
+          cpfCnpj: z.string().optional(),
+          telefone: z.string().optional(),
+          email: z.string().optional(),
+          ativo: z.number().min(0).max(1).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const { id, ...rest } = input;
+        return db.updateFornecedor(ctx.user.id, id, rest);
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteFornecedor(ctx.user.id, input.id)),
+  }),
+
   // -------------------------------------------------------- inventory items
   inventoryItems: router({
     list: protectedProcedure

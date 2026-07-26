@@ -141,6 +141,13 @@
       "when": 1785094368256,
       "tag": "0019_fixed_depth_chart_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1785097770001,
+      "tag": "0020_add_fornecedores",
+      "breakpoints": true
     }
   ]
 }

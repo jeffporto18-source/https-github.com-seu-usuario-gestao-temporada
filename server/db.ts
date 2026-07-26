@@ -14,6 +14,7 @@ import {
   curtaManagers,
   guaranteeTypes,
   DEFAULT_GUARANTEE_TYPES,
+  fornecedores,
   inventoryItems,
   longTermContracts,
   contractRentCharges,
@@ -26,6 +27,7 @@ import {
   InsertImobiliaria,
   InsertCurtaManager,
   InsertGuaranteeType,
+  InsertFornecedor,
   InsertInventoryItem,
   InsertLongTermContract,
   InsertContractRentCharge,
@@ -447,6 +449,31 @@ export async function seedDefaultGuaranteeTypesIfNeeded(ownerId: number) {
     await createGuaranteeType({ ownerId, nome, ativa: 1 });
   }
   return listGuaranteeTypes(ownerId);
+}
+
+// -------------------------------------------------------------------- fornecedores
+export async function listFornecedores(ownerId: number) {
+  const db = await requireDb();
+  return db.select().from(fornecedores).where(eq(fornecedores.ownerId, ownerId)).orderBy(fornecedores.nome);
+}
+
+export async function createFornecedor(data: InsertFornecedor) {
+  const db = await requireDb();
+  await db.insert(fornecedores).values(data);
+}
+
+export async function updateFornecedor(
+  ownerId: number,
+  id: number,
+  data: Partial<Pick<InsertFornecedor, "nome" | "cpfCnpj" | "telefone" | "email" | "ativo">>,
+) {
+  const db = await requireDb();
+  await db.update(fornecedores).set(data).where(and(eq(fornecedores.ownerId, ownerId), eq(fornecedores.id, id)));
+}
+
+export async function deleteFornecedor(ownerId: number, id: number) {
+  const db = await requireDb();
+  await db.delete(fornecedores).where(and(eq(fornecedores.ownerId, ownerId), eq(fornecedores.id, id)));
 }
 
 // -------------------------------------------------------------- inventory items

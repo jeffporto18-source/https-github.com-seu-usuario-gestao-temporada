@@ -259,6 +259,23 @@ export type InsertGuaranteeType = typeof guaranteeTypes.$inferInsert;
 export const DEFAULT_GUARANTEE_TYPES = ["Caução", "Fiador", "Seguro Fiança", "Capitalização"] as const;
 
 /**
+ * Fornecedores cadastrados pelo usuário, para vincular às despesas lançadas.
+ */
+export const fornecedores = mysqlTable("fornecedores", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerId: int("ownerId").notNull(),
+  nome: varchar("nome", { length: 150 }).notNull(),
+  cpfCnpj: varchar("cpfCnpj", { length: 20 }),
+  telefone: varchar("telefone", { length: 20 }),
+  email: varchar("email", { length: 150 }),
+  ativo: int("ativo").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Fornecedor = typeof fornecedores.$inferSelect;
+export type InsertFornecedor = typeof fornecedores.$inferInsert;
+
+/**
  * Itens de inventário (enxoval) por imóvel.
  */
 export const inventoryItems = mysqlTable("inventory_items", {

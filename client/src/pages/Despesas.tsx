@@ -8,6 +8,7 @@ export default function Despesas() {
       grupos={["despesa_fixa", "despesa_variavel"]}
       contraparteLabel="Fornecedor"
       contraparteholder="Ex.: Empresa de limpeza"
+      contraparteFornecedor
       submitLabel="+ Cadastrar despesa"
       emptyLabel="Nenhuma despesa cadastrada ainda."
     />

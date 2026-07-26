@@ -120,23 +120,24 @@ export default function PlanoContas() {
 
       {/* Nova conta principal: nome livre + natureza */}
       <Dialog open={!!novaPrincipal} onOpenChange={(o) => !o && setNovaPrincipal(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-serif">Nova conta principal</DialogTitle>
+        <DialogContent className="sm:max-w-[320px] gap-3 p-5">
+          <DialogHeader className="gap-1">
+            <DialogTitle className="text-base font-semibold">Nova conta principal</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-3 py-2">
+          <div className="grid gap-3">
             <div className="grid gap-1.5">
-              <Label>Nome</Label>
+              <Label className="text-xs">Nome</Label>
               <Input
                 autoFocus
+                className="h-8 focus-visible:ring-2"
                 value={novaPrincipal?.nome ?? ""}
                 onChange={(e) => setNovaPrincipal((p) => (p ? { ...p, nome: e.target.value } : p))}
               />
             </div>
             <div className="grid gap-1.5">
-              <Label>Natureza</Label>
+              <Label className="text-xs">Natureza</Label>
               <Select value={novaPrincipal?.grupo} onValueChange={(v) => setNovaPrincipal((p) => (p ? { ...p, grupo: v as Grupo } : p))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {(Object.keys(GRUPO_LABELS) as Grupo[]).map((g) => (
                     <SelectItem key={g} value={g}>{GRUPO_LABELS[g]}</SelectItem>
@@ -146,8 +147,9 @@ export default function PlanoContas() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" className="bg-background" onClick={() => setNovaPrincipal(null)}>Cancelar</Button>
+            <Button variant="outline" size="sm" className="bg-background" onClick={() => setNovaPrincipal(null)}>Cancelar</Button>
             <Button
+              size="sm"
               disabled={!novaPrincipal?.nome.trim() || create.isPending}
               onClick={() => novaPrincipal && create.mutate({ nome: novaPrincipal.nome.trim(), grupo: novaPrincipal.grupo })}
             >
@@ -159,22 +161,24 @@ export default function PlanoContas() {
 
       {/* Nova sub-conta: só nome, natureza herdada */}
       <Dialog open={!!novaSub} onOpenChange={(o) => !o && setNovaSub(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-serif">Nova subconta</DialogTitle>
+        <DialogContent className="sm:max-w-[320px] gap-3 p-5">
+          <DialogHeader className="gap-1">
+            <DialogTitle className="text-base font-semibold">Nova subconta</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-1.5 py-2">
-            <Label>Nome</Label>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Nome</Label>
             <Input
               autoFocus
+              className="h-8 focus-visible:ring-2"
               value={novaSub?.nome ?? ""}
               onChange={(e) => setNovaSub((s) => (s ? { ...s, nome: e.target.value } : s))}
               onKeyDown={(e) => { if (e.key === "Enter" && novaSub?.nome.trim()) create.mutate({ nome: novaSub.nome.trim(), parentId: novaSub.parentId }); }}
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" className="bg-background" onClick={() => setNovaSub(null)}>Cancelar</Button>
+            <Button variant="outline" size="sm" className="bg-background" onClick={() => setNovaSub(null)}>Cancelar</Button>
             <Button
+              size="sm"
               disabled={!novaSub?.nome.trim() || create.isPending}
               onClick={() => novaSub && create.mutate({ nome: novaSub.nome.trim(), parentId: novaSub.parentId })}
             >
@@ -186,22 +190,23 @@ export default function PlanoContas() {
 
       {/* Editar conta */}
       <Dialog open={!!editando} onOpenChange={(o) => !o && setEditando(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-serif">Editar conta</DialogTitle>
+        <DialogContent className="sm:max-w-[320px] gap-3 p-5">
+          <DialogHeader className="gap-1">
+            <DialogTitle className="text-base font-semibold">Editar conta</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-1.5 py-2">
-            <Label>Nome</Label>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Nome</Label>
             <Input
               autoFocus
+              className="h-8 focus-visible:ring-2"
               value={editando?.nome ?? ""}
               onChange={(e) => setEditando((s) => (s ? { ...s, nome: e.target.value } : s))}
               onKeyDown={(e) => { if (e.key === "Enter" && editando?.nome.trim()) update.mutate({ id: editando.id, nome: editando.nome.trim() }); }}
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" className="bg-background" onClick={() => setEditando(null)}>Cancelar</Button>
-            <Button disabled={!editando?.nome.trim() || update.isPending} onClick={() => editando && update.mutate({ id: editando.id, nome: editando.nome.trim() })}>
+            <Button variant="outline" size="sm" className="bg-background" onClick={() => setEditando(null)}>Cancelar</Button>
+            <Button size="sm" disabled={!editando?.nome.trim() || update.isPending} onClick={() => editando && update.mutate({ id: editando.id, nome: editando.nome.trim() })}>
               Salvar
             </Button>
           </DialogFooter>

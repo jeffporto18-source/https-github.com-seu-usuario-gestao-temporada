@@ -192,10 +192,10 @@ export default function Reservas() {
                 </div>
                 <div className="grid gap-1.5">
                   <Label>Faxinas utilizadas</Label>
-                  <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" />
+                  <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" className="w-24" />
                   <p className="text-xs text-muted-foreground">Gera despesa automática conforme custo configurado no imóvel.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3 items-end">
+                <div className="grid grid-cols-[2fr_1fr] gap-3 items-end">
                   <div className="grid gap-1.5">
                     <Label>Nome do hóspede</Label>
                     <Input value={form.nomeHospede} onChange={(e) => setForm({ ...form, nomeHospede: e.target.value })} placeholder="Nome completo" />

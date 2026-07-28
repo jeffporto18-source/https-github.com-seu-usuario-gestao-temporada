@@ -233,11 +233,6 @@ function AccountNode({
         ) : (
           <>
             <span className={`flex-1 truncate ${depth === 0 ? "text-sm font-semibold" : "text-sm"}`}>{conta.nome}</span>
-            {depth === 0 && (
-              <span className="text-[11px] rounded-full bg-primary/10 text-primary px-2 py-0.5 shrink-0">
-                {GRUPO_LABELS[conta.grupo as Grupo]}
-              </span>
-            )}
             <span className="text-[11px] text-muted-foreground shrink-0">{DEPTH_LABEL(depth)}</span>
             {podeExpandir && (
               <Button variant="outline" size="sm" className="h-7 bg-background text-xs shrink-0" onClick={() => onStartAdd(conta.id)}>

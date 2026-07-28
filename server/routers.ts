@@ -1246,6 +1246,54 @@ export const appRouter = router({
           resultadoProprietario: round2(resultadoProprietario),
         };
       }),
+
+    // DRE consolidado da empresa: soma os lançamentos (Receitas/Despesas/Aportes) de todos os
+    // imóveis para a competência, organizados pelas contas do plano de contas.
+    empresa: protectedProcedure
+      .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+        const grupos = ["receita", "despesa_fixa", "despesa_variavel", "aporte_capital"] as const;
+
+        const secoes = await Promise.all(
+          grupos.map(async (grupo) => {
+            const todos = await db.listLedgerEntries(ctx.user.id, undefined, grupo);
+            const doMes = todos.filter((e) => db.competenciaNaSerie(e.competenciaInicio, e.qtdMeses, input.competencia));
+
+            const porConta = new Map<string, number>();
+            for (const e of doMes) {
+              const chave = e.categoria || "Sem conta";
+              porConta.set(chave, (porConta.get(chave) ?? 0) + num(e.valor));
+            }
+            const contas = Array.from(porConta.entries())
+              .map(([nome, total]) => ({ nome, total: round2(total) }))
+              .sort((a, b) => b.total - a.total);
+
+            return { grupo, contas, total: round2(contas.reduce((s, c) => s + c.total, 0)) };
+          }),
+        );
+
+        const porGrupo = Object.fromEntries(secoes.map((s) => [s.grupo, s])) as Record<(typeof grupos)[number], (typeof secoes)[number]>;
+
+        const totalReceitas = porGrupo.receita.total;
+        const totalDespesasFixas = porGrupo.despesa_fixa.total;
+        const totalDespesasVariaveis = porGrupo.despesa_variavel.total;
+        const totalAportes = porGrupo.aporte_capital.total;
+
+        return {
+          competencia: input.competencia,
+          receitas: porGrupo.receita,
+          despesasFixas: porGrupo.despesa_fixa,
+          despesasVariaveis: porGrupo.despesa_variavel,
+          aportes: porGrupo.aporte_capital,
+          totalReceitas,
+          totalDespesasFixas,
+          totalDespesasVariaveis,
+          totalDespesas: round2(totalDespesasFixas + totalDespesasVariaveis),
+          totalAportes,
+          resultado: round2(totalReceitas - totalDespesasFixas - totalDespesasVariaveis),
+        };
+      }),
   }),
 
   // --------------------------------------------------------- dashboard

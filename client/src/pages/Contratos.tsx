@@ -81,6 +81,8 @@ export default function Contratos() {
   const [recebendo, setRecebendo] = useState<{ id: number; valor: number } | null>(null);
   const [uploadingGarantia, setUploadingGarantia] = useState(false);
   const garantiaFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingContrato, setUploadingContrato] = useState(false);
+  const contratoFileInputRef = useRef<HTMLInputElement>(null);
 
   const longTermProps = useMemo(() => (imoveis ?? []).filter((p) => p.tipoLocacao === "longa"), [imoveis]);
 
@@ -156,6 +158,31 @@ export default function Contratos() {
 
   const nomeImovel = (id: number) => imoveis?.find((p) => p.id === id)?.apelido ?? "—";
   const selectedContract = contratos?.find((c) => c.id === selectedContractId);
+  const imovelDoContrato = selectedContract ? imoveis?.find((p) => p.id === selectedContract.propertyId) : undefined;
+
+  const handleContratoUpload = async (propertyId: number, file: File) => {
+    if (file.type !== "application/pdf") {
+      toast.error("Apenas arquivos PDF são aceitos.");
+      return;
+    }
+    setUploadingContrato(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("propertyId", String(propertyId));
+      const resp = await fetch("/api/upload/contrato", { method: "POST", body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Erro ao enviar." }));
+        throw new Error(err.error);
+      }
+      toast.success("Contrato enviado com sucesso.");
+      utils.properties.list.invalidate();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao enviar contrato.");
+    } finally {
+      setUploadingContrato(false);
+    }
+  };
 
   const handleGarantiaDocUpload = async (file: File) => {
     if (!selectedContractId) return;
@@ -406,6 +433,39 @@ export default function Contratos() {
                     {TIPO_ADMIN_LABELS_CONTRATO[selectedContract.tipoAdministracao as ContractForm["tipoAdministracao"]]}
                     {Number(selectedContract.comissaoPct) > 0 ? ` · Comissão ${Number(selectedContract.comissaoPct)}%` : ""}
                   </p>
+                  <div className="flex items-center gap-2 flex-wrap mt-2">
+                    <input
+                      ref={contratoFileInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file && imovelDoContrato) handleContratoUpload(imovelDoContrato.id, file);
+                        e.target.value = "";
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs text-muted-foreground hover:text-primary"
+                      disabled={uploadingContrato || !imovelDoContrato}
+                      onClick={() => contratoFileInputRef.current?.click()}
+                    >
+                      {uploadingContrato ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+                      {imovelDoContrato?.contratoUrl ? "Substituir contrato" : "Anexar contrato"}
+                    </Button>
+                    {imovelDoContrato?.contratoUrl && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-muted-foreground hover:text-primary"
+                        onClick={() => window.open(imovelDoContrato.contratoUrl!, "_blank", "noopener,noreferrer")}
+                      >
+                        <ExternalLink className="mr-1 h-3.5 w-3.5" /> Ver contrato
+                      </Button>
+                    )}
+                  </div>
                   {selectedContract.tipoGarantia && (
                     <div className="flex items-center gap-2 flex-wrap mt-2">
                       <input

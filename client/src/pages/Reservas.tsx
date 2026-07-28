@@ -148,7 +148,7 @@ export default function Reservas() {
   return (
     <div className="max-w-5xl mx-auto">
       <PageHeader
-        title="Reservas"
+        title="Reservas de Curta Temporada"
         subtitle="Registre as reservas e emita as notas fiscais (locação + comissão) por operação."
         action={
           <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>

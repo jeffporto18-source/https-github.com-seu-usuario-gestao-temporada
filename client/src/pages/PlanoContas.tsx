@@ -233,7 +233,9 @@ function AccountNode({
         ) : (
           <>
             <span className={`flex-1 truncate ${depth === 0 ? "text-sm font-semibold" : "text-sm"}`}>{conta.nome}</span>
-            <span className="text-[11px] text-muted-foreground shrink-0">{DEPTH_LABEL(depth)}</span>
+            {depth > 0 && (
+              <span className="text-[11px] text-muted-foreground shrink-0">{DEPTH_LABEL(depth)}</span>
+            )}
             {podeExpandir && (
               <Button variant="outline" size="sm" className="h-7 bg-background text-xs shrink-0" onClick={() => onStartAdd(conta.id)}>
                 <Plus className="mr-1 h-3 w-3" /> {DEPTH_LABEL(depth + 1)}

@@ -10,28 +10,66 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Pencil, Truck } from "lucide-react";
+import { Plus, Trash2, Pencil, Truck, Settings } from "lucide-react";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 import { formatCpfCnpj } from "@/lib/format";
+import { Link } from "wouter";
+
+const NENHUMA = "nenhuma";
 
 interface FornecedorForm {
   nome: string;
   cpfCnpj: string;
   telefone: string;
   email: string;
+  chartAccountId: string;
 }
 
-const emptyForm: FornecedorForm = { nome: "", cpfCnpj: "", telefone: "", email: "" };
+const emptyForm: FornecedorForm = { nome: "", cpfCnpj: "", telefone: "", email: "", chartAccountId: "" };
 
 export default function Fornecedores() {
   const utils = trpc.useUtils();
   const { data: fornecedores, isLoading } = trpc.fornecedores.list.useQuery();
+  const { data: contasTodas } = trpc.chartAccounts.list.useQuery({});
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<FornecedorForm>(emptyForm);
+
+  // Contas de despesa (fixas e variáveis), achatadas em ordem hierárquica com indentação.
+  const contasDespesa = useMemo(() => {
+    const todas = (contasTodas ?? []).filter((c) => (c.grupo === "despesa_fixa" || c.grupo === "despesa_variavel") && c.ativa === 1);
+    const porPai = new Map<number | null, typeof todas>();
+    for (const c of todas) {
+      const key = c.parentId ?? null;
+      if (!porPai.has(key)) porPai.set(key, []);
+      porPai.get(key)!.push(c);
+    }
+    const out: { id: number; label: string }[] = [];
+    const visit = (parentId: number | null, depth: number) => {
+      for (const c of porPai.get(parentId) ?? []) {
+        out.push({ id: c.id, label: `${"— ".repeat(depth)}${c.nome}` });
+        visit(c.id, depth + 1);
+      }
+    };
+    visit(null, 0);
+    return out;
+  }, [contasTodas]);
+
+  const contaLabelPorId = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of contasDespesa) map.set(c.id, c.label.replace(/^(— )+/, ""));
+    return map;
+  }, [contasDespesa]);
 
   const reset = () => { setForm(emptyForm); setEditId(null); };
 
@@ -50,7 +88,13 @@ export default function Fornecedores() {
 
   const openEdit = (f: NonNullable<typeof fornecedores>[number]) => {
     setEditId(f.id);
-    setForm({ nome: f.nome, cpfCnpj: f.cpfCnpj || "", telefone: f.telefone || "", email: f.email || "" });
+    setForm({
+      nome: f.nome,
+      cpfCnpj: f.cpfCnpj || "",
+      telefone: f.telefone || "",
+      email: f.email || "",
+      chartAccountId: f.chartAccountId ? String(f.chartAccountId) : "",
+    });
     setOpen(true);
   };
 
@@ -61,9 +105,10 @@ export default function Fornecedores() {
       cpfCnpj: form.cpfCnpj || undefined,
       telefone: form.telefone || undefined,
       email: form.email || undefined,
+      chartAccountId: form.chartAccountId && form.chartAccountId !== NENHUMA ? Number(form.chartAccountId) : undefined,
     };
     if (editId) {
-      update.mutate({ id: editId, ...payload });
+      update.mutate({ id: editId, ...payload, chartAccountId: form.chartAccountId && form.chartAccountId !== NENHUMA ? Number(form.chartAccountId) : null });
     } else {
       create.mutate(payload);
     }
@@ -103,6 +148,24 @@ export default function Fornecedores() {
                     <Label>E-mail</Label>
                     <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" />
                   </div>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Conta de despesa (classificação padrão)</Label>
+                  <div className="flex gap-2">
+                    <Select value={form.chartAccountId || NENHUMA} onValueChange={(v) => setForm({ ...form, chartAccountId: v })}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NENHUMA}>Nenhuma</SelectItem>
+                        {contasDespesa.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>{c.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="outline" size="icon" className="bg-background shrink-0" asChild title="Gerenciar plano de contas">
+                      <Link href="/plano-contas"><Settings className="h-4 w-4" /></Link>
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Ao lançar uma despesa para este fornecedor, essa conta já vem selecionada.</p>
                 </div>
               </div>
               <DialogFooter>
@@ -144,6 +207,13 @@ export default function Fornecedores() {
               {(f.telefone || f.email) && (
                 <p className="mt-3 text-xs text-muted-foreground truncate">
                   {[f.telefone, f.email].filter(Boolean).join(" · ")}
+                </p>
+              )}
+              {f.chartAccountId && contaLabelPorId.get(f.chartAccountId) && (
+                <p className="mt-2 text-xs">
+                  <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5">
+                    {contaLabelPorId.get(f.chartAccountId)}
+                  </span>
                 </p>
               )}
             </Card>

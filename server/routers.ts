@@ -531,18 +531,23 @@ export const appRouter = router({
           cpfCnpj: z.string().optional(),
           telefone: z.string().optional(),
           email: z.string().optional(),
+          chartAccountId: z.number().optional(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        db.createFornecedor({
+      .mutation(async ({ ctx, input }) => {
+        if (input.chartAccountId) {
+          await resolveChartAccount(ctx.user.id, input.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
+        }
+        return db.createFornecedor({
           ownerId: ctx.user.id,
           nome: input.nome,
           cpfCnpj: input.cpfCnpj || null,
           telefone: input.telefone || null,
           email: input.email || null,
+          chartAccountId: input.chartAccountId || null,
           ativo: 1,
-        }),
-      ),
+        });
+      }),
     update: protectedProcedure
       .input(
         z.object({
@@ -551,11 +556,15 @@ export const appRouter = router({
           cpfCnpj: z.string().optional(),
           telefone: z.string().optional(),
           email: z.string().optional(),
+          chartAccountId: z.number().nullable().optional(),
           ativo: z.number().min(0).max(1).optional(),
         }),
       )
-      .mutation(({ ctx, input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, ...rest } = input;
+        if (rest.chartAccountId) {
+          await resolveChartAccount(ctx.user.id, rest.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
+        }
         return db.updateFornecedor(ctx.user.id, id, rest);
       }),
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteFornecedor(ctx.user.id, input.id)),

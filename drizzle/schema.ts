@@ -273,6 +273,8 @@ export const fornecedores = mysqlTable("fornecedores", {
   cpfCnpj: varchar("cpfCnpj", { length: 20 }),
   telefone: varchar("telefone", { length: 20 }),
   email: varchar("email", { length: 150 }),
+  // Conta de despesa (chart_accounts) usada para já classificar a despesa ao lançar para este fornecedor
+  chartAccountId: int("chartAccountId"),
   ativo: int("ativo").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

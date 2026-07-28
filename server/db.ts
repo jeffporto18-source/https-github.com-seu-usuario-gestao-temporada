@@ -465,7 +465,7 @@ export async function createFornecedor(data: InsertFornecedor) {
 export async function updateFornecedor(
   ownerId: number,
   id: number,
-  data: Partial<Pick<InsertFornecedor, "nome" | "cpfCnpj" | "telefone" | "email" | "ativo">>,
+  data: Partial<Pick<InsertFornecedor, "nome" | "cpfCnpj" | "telefone" | "email" | "chartAccountId" | "ativo">>,
 ) {
   const db = await requireDb();
   await db.update(fornecedores).set(data).where(and(eq(fornecedores.ownerId, ownerId), eq(fornecedores.id, id)));

@@ -224,7 +224,17 @@ export default function LancamentoManager({ titulo, subtitulo, grupos, contrapar
               <Label>{contraparteLabel}</Label>
               {contraparteFornecedor ? (
                 <div className="flex gap-2">
-                  <Select value={form.contraparte} onValueChange={(v) => setForm((f) => ({ ...f, contraparte: v }))}>
+                  <Select
+                    value={form.contraparte}
+                    onValueChange={(v) => {
+                      const fornecedor = fornecedoresAtivos.find((fo) => fo.nome === v);
+                      setForm((f) => ({
+                        ...f,
+                        contraparte: v,
+                        chartAccountId: !f.chartAccountId && fornecedor?.chartAccountId ? String(fornecedor.chartAccountId) : f.chartAccountId,
+                      }));
+                    }}
+                  >
                     <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione o fornecedor..." /></SelectTrigger>
                     <SelectContent>
                       {fornecedoresAtivos.map((fo) => (

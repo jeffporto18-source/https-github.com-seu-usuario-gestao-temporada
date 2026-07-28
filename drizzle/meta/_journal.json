@@ -162,6 +162,13 @@
       "when": 1785100714931,
       "tag": "0022_add_reserva_cpf_hospede",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1785248652468,
+      "tag": "0023_add_fornecedor_chart_account",
+      "breakpoints": true
     }
   ]
 }

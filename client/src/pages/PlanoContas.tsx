@@ -14,10 +14,11 @@ import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Check, X, ChevronRight, ChevronDown } from "lucide-react";
 import { PageHeader } from "./Clientes";
 
-type Grupo = "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
+type Grupo = "conta_principal" | "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
 type ChartAccount = RouterOutputs["chartAccounts"]["list"][number];
 
 const GRUPO_LABELS: Record<Grupo, string> = {
+  conta_principal: "Conta principal",
   despesa_fixa: "Despesa Fixa",
   despesa_variavel: "Despesa Variável",
   receita: "Receita",
@@ -38,7 +39,7 @@ export default function PlanoContas() {
   const [addingRoot, setAddingRoot] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [nome, setNome] = useState("");
-  const [grupo, setGrupo] = useState<Grupo>("despesa_fixa");
+  const [grupo, setGrupo] = useState<Grupo>("conta_principal");
 
   const closeAll = () => { setAddingUnderId(null); setAddingRoot(false); setEditingId(null); setNome(""); };
 
@@ -83,7 +84,7 @@ export default function PlanoContas() {
   };
 
   const startAddUnder = (parentId: number) => { setAddingRoot(false); setEditingId(null); setAddingUnderId(parentId); setNome(""); };
-  const startAddRoot = () => { setAddingUnderId(null); setEditingId(null); setAddingRoot(true); setNome(""); setGrupo("despesa_fixa"); };
+  const startAddRoot = () => { setAddingUnderId(null); setEditingId(null); setAddingRoot(true); setNome(""); setGrupo("conta_principal"); };
   const startEdit = (a: ChartAccount) => { setAddingUnderId(null); setAddingRoot(false); setEditingId(a.id); setNome(a.nome); };
 
   return (

@@ -169,6 +169,13 @@
       "when": 1785248652468,
       "tag": "0023_add_fornecedor_chart_account",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1785257409843,
+      "tag": "0024_add_conta_principal_grupo",
+      "breakpoints": true
     }
   ]
 }

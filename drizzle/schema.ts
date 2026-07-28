@@ -106,7 +106,7 @@ export type InsertProperty = typeof properties.$inferInsert;
 export const chartAccounts = mysqlTable("chart_accounts", {
   id: int("id").autoincrement().primaryKey(),
   ownerId: int("ownerId").notNull(),
-  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).notNull(),
+  grupo: mysqlEnum("grupo", ["conta_principal", "despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).notNull(),
   nome: varchar("nome", { length: 100 }).notNull(),
   parentId: int("parentId"), // null = conta principal (nível 0); caso contrário, aponta para o pai imediato (máx. nível 3)
   ativa: int("ativa").notNull().default(1),

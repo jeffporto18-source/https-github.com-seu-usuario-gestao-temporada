@@ -12,18 +12,19 @@ import { ENV } from "./_core/env";
 // (parentId nulo) definem a natureza (grupo); sub-contas em qualquer nível herdam a
 // natureza da conta principal ancestral. Usado pelos lançamentos e pelo desconto de aluguel.
 
-type ChartAccountGrupo = "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
-const CHART_ACCOUNT_GRUPOS: ChartAccountGrupo[] = ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"];
+type ChartAccountGrupo = "conta_principal" | "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital";
+// Naturezas lançáveis (usadas em Receitas/Despesas/Aportes); "conta_principal" é apenas um contêiner sem natureza definida.
+const CHART_ACCOUNT_GRUPOS: Exclude<ChartAccountGrupo, "conta_principal">[] = ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"];
 const CHART_ACCOUNT_MAX_DEPTH = 3; // 4 níveis: 0=conta principal, 1=conta, 2=subconta, 3=sub-subconta
 
 const num = (v: number | string | null) => Number(v ?? 0);
 
 /** Resolve uma conta do plano de contas, validando que pertence a um dos grupos permitidos, e monta o caminho exibido ("Principal > Conta > Sub-conta"). */
-async function resolveChartAccount(ownerId: number, chartAccountId: number, gruposPermitidos: ChartAccountGrupo[]) {
+async function resolveChartAccount<T extends ChartAccountGrupo>(ownerId: number, chartAccountId: number, gruposPermitidos: T[]) {
   const contas = await db.listChartAccounts(ownerId);
   const conta = contas.find((c) => c.id === chartAccountId);
   if (!conta) throw new Error("Conta do plano de contas não encontrada.");
-  if (!gruposPermitidos.includes(conta.grupo)) throw new Error("Conta selecionada não pertence ao grupo esperado.");
+  if (!gruposPermitidos.includes(conta.grupo as T)) throw new Error("Conta selecionada não pertence ao grupo esperado.");
   const porId = new Map(contas.map((c) => [c.id, c]));
   const caminho: string[] = [conta.nome];
   let atual = conta;
@@ -33,7 +34,7 @@ async function resolveChartAccount(ownerId: number, chartAccountId: number, grup
     caminho.unshift(pai.nome);
     atual = pai;
   }
-  return { conta, nome: caminho.join(" > ") };
+  return { conta: { ...conta, grupo: conta.grupo as T }, nome: caminho.join(" > ") };
 }
 
 /** Profundidade de uma conta (0 = conta principal), contando os ancestrais via parentId. */
@@ -403,7 +404,7 @@ export const appRouter = router({
   // ------------------------------------------------------------- plano de contas
   chartAccounts: router({
     list: protectedProcedure
-      .input(z.object({ grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional() }).optional())
+      .input(z.object({ grupo: z.enum(["conta_principal", "despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
         const all = await db.seedDefaultChartAccountsIfNeeded(ctx.user.id);
         return input?.grupo ? all.filter((a) => a.grupo === input.grupo) : all;
@@ -411,7 +412,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(
         z.object({
-          grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
+          grupo: z.enum(["conta_principal", "despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
           nome: z.string().min(1),
           parentId: z.number().optional(),
         }),
@@ -784,7 +785,7 @@ export const appRouter = router({
         let descontoLedgerEntryId: number | null = null;
         if (input.desconto > 0) {
           // Conta é opcional: se a pessoa descreveu o motivo, não precisa classificar por conta (e vice-versa).
-          let contaResolvida: { conta: { id: number; grupo: ChartAccountGrupo }; nome: string } | null = null;
+          let contaResolvida: { conta: { id: number; grupo: "despesa_fixa" | "despesa_variavel" }; nome: string } | null = null;
           if (input.descontoChartAccountId) {
             contaResolvida = await resolveChartAccount(ctx.user.id, input.descontoChartAccountId, ["despesa_fixa", "despesa_variavel"]);
           }

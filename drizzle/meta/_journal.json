@@ -176,6 +176,13 @@
       "when": 1785257409843,
       "tag": "0024_add_conta_principal_grupo",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1785264255375,
+      "tag": "0025_add_contrato_garantia_documento",
+      "breakpoints": true
     }
   ]
 }

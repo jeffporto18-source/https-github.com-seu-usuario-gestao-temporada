@@ -325,6 +325,8 @@ export const longTermContracts = mysqlTable("long_term_contracts", {
   diaVencimentoAluguel: int("diaVencimentoAluguel").notNull().default(10),
   // Tipo de garantia (nome, referenciando guarantee_types no momento do cadastro)
   tipoGarantia: varchar("tipoGarantia", { length: 100 }),
+  garantiaDocumentoUrl: varchar("garantiaDocumentoUrl", { length: 500 }),
+  garantiaDocumentoKey: varchar("garantiaDocumentoKey", { length: 255 }),
   // Comissão da administradora sobre este contrato (%) e como o imóvel é administrado
   comissaoPct: decimal("comissaoPct", { precision: 5, scale: 2 }).notNull().default("0.00"),
   tipoAdministracao: mysqlEnum("contractTipoAdministracao", ["propria", "administradora", "gestor_curta_temporada"]).notNull().default("propria"),

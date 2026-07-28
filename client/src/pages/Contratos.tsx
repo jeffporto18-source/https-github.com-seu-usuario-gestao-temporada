@@ -19,9 +19,9 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, FileText, CheckCircle2, Circle, User } from "lucide-react";
+import { Plus, Trash2, FileText, CheckCircle2, Circle, User, Upload, ExternalLink, Loader2 } from "lucide-react";
 import { brl, formatDate } from "@/lib/format";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 import MarcarRecebidoDialog from "@/components/MarcarRecebidoDialog";
@@ -79,6 +79,8 @@ export default function Contratos() {
   const [form, setForm] = useState<ContractForm>(emptyForm);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
   const [recebendo, setRecebendo] = useState<{ id: number; valor: number } | null>(null);
+  const [uploadingGarantia, setUploadingGarantia] = useState(false);
+  const garantiaFileInputRef = useRef<HTMLInputElement>(null);
 
   const longTermProps = useMemo(() => (imoveis ?? []).filter((p) => p.tipoLocacao === "longa"), [imoveis]);
 
@@ -154,6 +156,27 @@ export default function Contratos() {
 
   const nomeImovel = (id: number) => imoveis?.find((p) => p.id === id)?.apelido ?? "—";
   const selectedContract = contratos?.find((c) => c.id === selectedContractId);
+
+  const handleGarantiaDocUpload = async (file: File) => {
+    if (!selectedContractId) return;
+    setUploadingGarantia(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("contractId", String(selectedContractId));
+      const resp = await fetch("/api/upload/garantia-contrato", { method: "POST", body: formData });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Erro ao enviar." }));
+        throw new Error(err.error);
+      }
+      toast.success("Documento da garantia enviado.");
+      utils.longTermContracts.list.invalidate();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao enviar documento.");
+    } finally {
+      setUploadingGarantia(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -383,6 +406,41 @@ export default function Contratos() {
                     {TIPO_ADMIN_LABELS_CONTRATO[selectedContract.tipoAdministracao as ContractForm["tipoAdministracao"]]}
                     {Number(selectedContract.comissaoPct) > 0 ? ` · Comissão ${Number(selectedContract.comissaoPct)}%` : ""}
                   </p>
+                  {selectedContract.tipoGarantia && (
+                    <div className="flex items-center gap-2 flex-wrap mt-2">
+                      <input
+                        ref={garantiaFileInputRef}
+                        type="file"
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleGarantiaDocUpload(file);
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs text-muted-foreground hover:text-primary"
+                        disabled={uploadingGarantia}
+                        onClick={() => garantiaFileInputRef.current?.click()}
+                      >
+                        {uploadingGarantia ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+                        {selectedContract.garantiaDocumentoUrl ? "Substituir documento da garantia" : "Anexar documento da garantia"}
+                      </Button>
+                      {selectedContract.garantiaDocumentoUrl && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-muted-foreground hover:text-primary"
+                          onClick={() => window.open(selectedContract.garantiaDocumentoUrl!, "_blank", "noopener,noreferrer")}
+                        >
+                          <ExternalLink className="mr-1 h-3.5 w-3.5" /> Ver documento
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="divide-y divide-border max-h-[480px] overflow-y-auto">
                   {!charges?.length ? (

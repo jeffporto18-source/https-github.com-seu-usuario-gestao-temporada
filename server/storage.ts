@@ -1,14 +1,32 @@
-// Local-disk storage helpers (self-hosted alternative to the Manus Forge backend).
-// Files are written under UPLOADS_DIR and served back via the /manus-storage/{key} route
-// registered in storageProxy.ts, so callers don't need to change how they build URLs.
+// Cloudflare R2 storage helpers (S3-compatible API).
+// Uploaded files live in a private R2 bucket; callers get back a stable
+// `/manus-storage/{key}` URL that the storageProxy route resolves to a
+// short-lived signed R2 URL on each request.
 
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR
-  ? path.resolve(process.env.UPLOADS_DIR)
-  : path.resolve(process.cwd(), "uploads");
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? "";
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID ?? "";
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY ?? "";
+const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME ?? "";
+
+let client: S3Client | null = null;
+
+function requireClient(): S3Client {
+  if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET_NAME) {
+    throw new Error("R2 não configurado: defina R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY e R2_BUCKET_NAME.");
+  }
+  if (!client) {
+    client = new S3Client({
+      region: "auto",
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY },
+    });
+  }
+  return client;
+}
 
 function normalizeKey(relKey: string): string {
   return relKey.replace(/^\/+/, "");
@@ -21,27 +39,24 @@ function appendHashSuffix(relKey: string): string {
   return `${relKey.slice(0, lastDot)}_${hash}${relKey.slice(lastDot)}`;
 }
 
-export function uploadsDir(): string {
-  return UPLOADS_DIR;
-}
-
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
-  _contentType = "application/octet-stream",
+  contentType = "application/octet-stream",
 ): Promise<{ key: string; url: string }> {
   const key = appendHashSuffix(normalizeKey(relKey));
-  const filePath = path.join(UPLOADS_DIR, key);
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(filePath, data);
+  await requireClient().send(
+    new PutObjectCommand({ Bucket: R2_BUCKET_NAME, Key: key, Body: data, ContentType: contentType }),
+  );
   return { key, url: `/manus-storage/${key}` };
 }
 
-export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
+/** URL assinada de curta duração (5 min) para leitura do objeto — gerada a cada acesso, nunca persistida. */
+export async function getPresignedUrl(relKey: string, expiresInSeconds = 300): Promise<string> {
   const key = normalizeKey(relKey);
-  return { key, url: `/manus-storage/${key}` };
-}
-
-export async function storageGetSignedUrl(relKey: string): Promise<string> {
-  return `/manus-storage/${normalizeKey(relKey)}`;
+  return getSignedUrl(
+    requireClient(),
+    new GetObjectCommand({ Bucket: R2_BUCKET_NAME, Key: key }),
+    { expiresIn: expiresInSeconds },
+  );
 }

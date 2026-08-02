@@ -397,9 +397,9 @@ function ReservaCard({
         </div>
         <div className="flex items-center gap-2">
           {emitida ? (
-            <Badge className="bg-primary/10 text-primary"><CheckCircle2 className="mr-1 h-3 w-3" /> NFS-e emitida</Badge>
+            <Badge className="bg-primary/10 text-primary"><CheckCircle2 className="mr-1 h-3 w-3" /> Nota fiscal emitida</Badge>
           ) : (
-            <Badge variant="secondary">Pendente</Badge>
+            <Badge variant="secondary">Pendente de nota fiscal</Badge>
           )}
         </div>
       </div>

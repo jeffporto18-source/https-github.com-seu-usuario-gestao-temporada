@@ -1327,6 +1327,69 @@ export const appRouter = router({
       }),
   }),
 
+  // --------------------------------------------------------- relatórios
+  relatorios: router({
+    // Relatório mensal para a contabilidade: quem alugou cada unidade (curta e longa
+    // duração), com nome, CPF/passaporte e valor, mais o total recebido no mês.
+    contabilidade: protectedProcedure
+      .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+        const props = await db.listProperties(ctx.user.id);
+        const propMap = new Map(props.map((p) => [p.id, p]));
+
+        const reservas = await db.listReservations(ctx.user.id, undefined, input.competencia);
+        const parcelas = await db.listContractRentChargesByCompetencia(ctx.user.id, input.competencia);
+
+        type Item = {
+          nome: string;
+          documento: string;
+          tipoDocumento: string;
+          tipoLocacao: "curta" | "longa";
+          imovel: string;
+          valor: number;
+        };
+        const itens: Item[] = [];
+
+        for (const r of reservas) {
+          const prop = propMap.get(r.propertyId);
+          itens.push({
+            nome: r.nomeHospede || "(não informado)",
+            documento: (r.estrangeiro ? r.passaporteHospede : r.cpfHospede) || "-",
+            tipoDocumento: r.estrangeiro ? "Passaporte" : "CPF",
+            tipoLocacao: "curta",
+            imovel: prop?.apelido || "-",
+            valor: round2(num(r.valorBruto) + num(r.taxaLimpeza)),
+          });
+        }
+
+        const contractIds = Array.from(new Set(parcelas.map((p) => p.contractId)));
+        const contratosArr = await Promise.all(contractIds.map((id) => db.getLongTermContract(ctx.user.id, id)));
+        const contratoMap = new Map(contratosArr.filter((c): c is NonNullable<typeof c> => !!c).map((c) => [c.id, c]));
+
+        for (const p of parcelas) {
+          const contrato = contratoMap.get(p.contractId);
+          const prop = propMap.get(p.propertyId);
+          itens.push({
+            nome: contrato?.nomeInquilino || "(não informado)",
+            documento: contrato?.cpfCnpjInquilino || "-",
+            tipoDocumento: "CPF/CNPJ",
+            tipoLocacao: "longa",
+            imovel: prop?.apelido || "-",
+            valor: round2(num(p.valor)),
+          });
+        }
+
+        itens.sort((a, b) => a.nome.localeCompare(b.nome));
+
+        return {
+          competencia: input.competencia,
+          itens,
+          total: round2(itens.reduce((s, i) => s + i.valor, 0)),
+        };
+      }),
+  }),
+
   // --------------------------------------------------------- dashboard
   dashboard: router({
     overview: protectedProcedure

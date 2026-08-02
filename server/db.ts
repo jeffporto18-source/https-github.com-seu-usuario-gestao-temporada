@@ -549,6 +549,15 @@ export async function listContractRentChargesByProperty(ownerId: number, propert
     .where(and(eq(contractRentCharges.ownerId, ownerId), eq(contractRentCharges.propertyId, propertyId), eq(contractRentCharges.competencia, competencia)));
 }
 
+/** Parcelas de aluguel de longa duração de TODOS os imóveis numa competência (usado no relatório de contabilidade). */
+export async function listContractRentChargesByCompetencia(ownerId: number, competencia: string) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(contractRentCharges)
+    .where(and(eq(contractRentCharges.ownerId, ownerId), eq(contractRentCharges.competencia, competencia)));
+}
+
 export async function getContractRentCharge(ownerId: number, id: number) {
   const db = await requireDb();
   const rows = await db.select().from(contractRentCharges).where(and(eq(contractRentCharges.ownerId, ownerId), eq(contractRentCharges.id, id))).limit(1);

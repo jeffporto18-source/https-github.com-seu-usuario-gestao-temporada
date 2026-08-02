@@ -23,6 +23,7 @@ import PlanoContas from "./pages/PlanoContas";
 import Reservas from "./pages/Reservas";
 import Dre from "./pages/Dre";
 import DreEmpresa from "./pages/DreEmpresa";
+import RelatoriosContabilidade from "./pages/RelatoriosContabilidade";
 import Repasse from "./pages/Repasse";
 import ImportarCsv from "./pages/ImportarCsv";
 import Onboarding from "./pages/Onboarding";
@@ -164,6 +165,11 @@ function App() {
             <Route path="/dre-empresa">
               <RequireAuth>
                 <DashboardLayout><DreEmpresa /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/relatorios-contabilidade">
+              <RequireAuth>
+                <DashboardLayout><RelatoriosContabilidade /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/repasse">

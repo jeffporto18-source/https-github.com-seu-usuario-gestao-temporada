@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Receipt, BookOpen, CalendarDays, FileText, BarChart3, Upload, UserCog, UsersRound, Landmark, UserCog2, FileSignature, Package, Wallet, TrendingUp, Truck, PieChart } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Receipt, BookOpen, CalendarDays, FileText, BarChart3, Upload, UserCog, UsersRound, Landmark, UserCog2, FileSignature, Package, Wallet, TrendingUp, Truck, PieChart, ClipboardList } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -44,6 +44,7 @@ const allMenuItems = [
   { icon: Package, label: "Inventário", path: "/inventario", hideFor: [] as string[] },
   { icon: BarChart3, label: "DRE por Unidade", path: "/dre", hideFor: [] as string[] },
   { icon: PieChart, label: "DRE Empresa", path: "/dre-empresa", hideFor: [] as string[] },
+  { icon: ClipboardList, label: "Relatórios para Contabilidade", path: "/relatorios-contabilidade", hideFor: [] as string[] },
   { icon: FileText, label: "Repasse ao Proprietário", path: "/repasse", hideFor: ["holding"] },
   { icon: Upload, label: "Importar CSV", path: "/importar", hideFor: [] as string[] },
   { icon: UsersRound, label: "Usuários", path: "/usuarios", hideFor: [] as string[] },

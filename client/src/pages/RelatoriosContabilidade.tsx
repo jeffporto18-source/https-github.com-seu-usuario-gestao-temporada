@@ -11,37 +11,56 @@ import {
 import { useState } from "react";
 import { brl, competenciaAtual, competencias } from "@/lib/format";
 import { PageHeader, EmptyState } from "./Clientes";
-import { Download } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 
 export default function RelatoriosContabilidade() {
   const [competencia, setCompetencia] = useState<string>(competenciaAtual());
   const { data, isLoading } = trpc.relatorios.contabilidade.useQuery({ competencia });
   const meses = competencias();
 
-  function baixarCsv() {
+  function baixarExcel() {
     if (!data) return;
-    const linhas = [
-      ["Nome", "Documento", "Tipo de documento", "Tipo de locação", "Imóvel", "Valor"],
-      ...data.itens.map((i) => [
+    const linhas = data.itens.map((i) => ({
+      Nome: i.nome,
+      Documento: `${i.tipoDocumento}: ${i.documento}`,
+      "Tipo de locação": i.tipoLocacao === "curta" ? "Curta temporada" : "Longa duração",
+      Imóvel: i.imovel,
+      Valor: i.valor,
+    }));
+    linhas.push({ Nome: "", Documento: "", "Tipo de locação": "", Imóvel: "Total recebido no mês", Valor: data.total });
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    ws["!cols"] = [{ wch: 28 }, { wch: 28 }, { wch: 20 }, { wch: 24 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+    XLSX.writeFile(wb, `relatorio-contabilidade-${competencia}.xlsx`);
+  }
+
+  function baixarPdf() {
+    if (!data) return;
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Relatórios para Contabilidade", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Competência: ${meses.find((m) => m.value === competencia)?.label ?? competencia}`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [["Nome", "Documento", "Tipo de locação", "Imóvel", "Valor"]],
+      body: data.itens.map((i) => [
         i.nome,
-        i.documento,
-        i.tipoDocumento,
+        `${i.tipoDocumento}: ${i.documento}`,
         i.tipoLocacao === "curta" ? "Curta temporada" : "Longa duração",
         i.imovel,
-        i.valor.toFixed(2).replace(".", ","),
+        brl(i.valor),
       ]),
-      ["", "", "", "", "Total", data.total.toFixed(2).replace(".", ",")],
-    ];
-    const csv = linhas
-      .map((linha) => linha.map((campo) => `"${String(campo).replace(/"/g, '""')}"`).join(","))
-      .join("\r\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `relatorio-contabilidade-${competencia}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+      foot: [["", "", "", "Total recebido no mês", brl(data.total)]],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [30, 41, 59] },
+      footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
+    });
+    doc.save(`relatorio-contabilidade-${competencia}.pdf`);
   }
 
   return (
@@ -63,9 +82,14 @@ export default function RelatoriosContabilidade() {
           </SelectContent>
         </Select>
 
-        <Button variant="outline" onClick={baixarCsv} disabled={!data || data.itens.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          Baixar CSV
+        <Button variant="outline" onClick={baixarExcel} disabled={!data || data.itens.length === 0}>
+          <FileSpreadsheet className="h-4 w-4 mr-2" />
+          Baixar Excel
+        </Button>
+
+        <Button variant="outline" onClick={baixarPdf} disabled={!data || data.itens.length === 0}>
+          <FileText className="h-4 w-4 mr-2" />
+          Baixar PDF
         </Button>
       </div>
 

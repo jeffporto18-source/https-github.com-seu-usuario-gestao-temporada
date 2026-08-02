@@ -21,7 +21,7 @@ interface CsvRow {
   codigo: string;
   valorBruto: number;
   taxaLimpeza: number;
-  taxaAirbnbPct: number;
+  taxaAirbnb: number;
   checkin: string;
   checkout: string;
   noites: number;
@@ -105,7 +105,7 @@ function parseCsv(text: string): { headers: string[]; rows: string[][] } {
 }
 
 function mapRow(headers: string[], row: string[], defaultFaxinas: number): CsvRow | null {
-  const mapped: Partial<CsvRow> = { taxaAirbnbPct: 4, taxaLimpeza: 0, faxinasUtilizadas: defaultFaxinas };
+  const mapped: Partial<CsvRow> = { taxaAirbnb: 0, taxaLimpeza: 0, faxinasUtilizadas: defaultFaxinas };
 
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];

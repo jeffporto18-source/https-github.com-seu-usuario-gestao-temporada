@@ -162,8 +162,8 @@ export const reservations = mysqlTable("reservations", {
   codigo: varchar("codigo", { length: 60 }).notNull(), // código Airbnb
   valorBruto: decimal("valorBruto", { precision: 12, scale: 2 }).notNull(),
   taxaLimpeza: decimal("taxaLimpeza", { precision: 12, scale: 2 }).notNull().default("0.00"),
-  // taxa Airbnb em percentual (default 4%)
-  taxaAirbnbPct: decimal("taxaAirbnbPct", { precision: 5, scale: 2 }).notNull().default("4.00"),
+  // taxa Airbnb em valor (R$), digitado livremente por reserva
+  taxaAirbnb: decimal("taxaAirbnb", { precision: 12, scale: 2 }).notNull().default("0.00"),
   checkin: date("checkin").notNull(),
   checkout: date("checkout").notNull(),
   noites: int("noites").notNull().default(1),
@@ -172,6 +172,7 @@ export const reservations = mysqlTable("reservations", {
   competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
   nomeHospede: varchar("nomeHospede", { length: 150 }),
   cpfHospede: varchar("cpfHospede", { length: 20 }),
+  passaporteHospede: varchar("passaporteHospede", { length: 40 }),
   estrangeiro: int("estrangeiro").notNull().default(0), // 0 = não, 1 = sim
   documentoUrl: varchar("documentoUrl", { length: 500 }),
   documentoKey: varchar("documentoKey", { length: 255 }),

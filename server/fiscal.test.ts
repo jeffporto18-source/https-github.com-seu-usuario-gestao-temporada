@@ -18,7 +18,7 @@ const baseInput: OperacaoInput = {
   noites: 3,
   valorBruto: 1800,
   taxaLimpeza: 200,
-  taxaAirbnbPct: 4,
+  taxaAirbnb: 80,
   comissaoPct: 20,
   admin: { cnpj: "00.000.000/0001-00", razaoSocial: "Admin LTDA" },
   proprietario: { nome: "João Silva", cpfCnpj: "123.456.789-00", tipo: "PF" },
@@ -31,8 +31,8 @@ describe("motor fiscal — processarOperacao", () => {
     expect(r.receitaLocacao).toBe(2000);
   });
 
-  it("aplica taxa Airbnb de 4% sobre a receita bruta", () => {
-    expect(r.taxaAirbnb).toBe(80); // 2000 * 4%
+  it("usa o valor de taxa Airbnb informado diretamente na reserva", () => {
+    expect(r.taxaAirbnb).toBe(80);
   });
 
   it("calcula a comissão da administradora sobre a receita bruta", () => {
@@ -62,10 +62,10 @@ describe("motor fiscal — processarOperacao", () => {
     expect(servico.valorServicos).toBe(400);
   });
 
-  it("respeita percentuais parametrizados por reserva", () => {
-    const custom = processarOperacao({ ...baseInput, comissaoPct: 15, taxaAirbnbPct: 3 });
+  it("respeita comissão e taxa Airbnb parametrizadas por reserva", () => {
+    const custom = processarOperacao({ ...baseInput, comissaoPct: 15, taxaAirbnb: 60 });
     expect(custom.comissaoAdmin).toBe(300); // 2000 * 15%
-    expect(custom.taxaAirbnb).toBe(60); // 2000 * 3%
+    expect(custom.taxaAirbnb).toBe(60);
   });
 });
 

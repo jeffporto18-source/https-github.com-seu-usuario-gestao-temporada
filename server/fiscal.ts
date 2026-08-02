@@ -8,7 +8,7 @@
  * Regras fixadas (fase de teste 2026):
  *   - Redutor de base de cálculo CBS/IBS: 40%
  *   - Alíquotas simbólicas de teste: CBS 0,9% | IBS 0,1%
- *   - Taxa de plataforma Airbnb (anfitrião): 4% (parametrizável por reserva)
+ *   - Taxa de plataforma Airbnb (anfitrião): valor em R$ digitado livremente por reserva
  *
  * Toda a matemática usa centavos inteiros para evitar erro de ponto flutuante.
  */
@@ -34,7 +34,7 @@ export type OperacaoInput = {
   noites: number;
   valorBruto: number; // diárias
   taxaLimpeza: number;
-  taxaAirbnbPct: number; // ex.: 4
+  taxaAirbnb: number; // valor em R$ da taxa Airbnb
   comissaoPct: number; // ex.: 20
   // dados fiscais
   admin: { cnpj: string; razaoSocial: string };
@@ -64,7 +64,7 @@ function round2(n: number): number {
 
 export function processarOperacao(input: OperacaoInput): ResultadoFiscal {
   const receitaLocacao = round2(input.valorBruto + input.taxaLimpeza);
-  const taxaAirbnb = round2(receitaLocacao * (input.taxaAirbnbPct / 100));
+  const taxaAirbnb = round2(input.taxaAirbnb);
   const comissaoAdmin = round2(receitaLocacao * (input.comissaoPct / 100));
 
   const fiscalCat = input.fiscalCategory ?? "pj";

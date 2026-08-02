@@ -30,10 +30,11 @@ interface ReservaForm {
   faxinas: string;
   nomeHospede: string;
   cpfHospede: string;
+  passaporteHospede: string;
   estrangeiro: boolean;
 }
 
-const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "4", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", cpfHospede: "", estrangeiro: false };
+const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "0", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", cpfHospede: "", passaporteHospede: "", estrangeiro: false };
 
 export default function Reservas() {
   const utils = trpc.useUtils();
@@ -92,12 +93,13 @@ export default function Reservas() {
       codigo: r.codigo,
       valorBruto: String(Number(r.valorBruto)),
       taxaLimpeza: String(Number(r.taxaLimpeza)),
-      taxaAirbnb: String(Number(r.taxaAirbnbPct)),
+      taxaAirbnb: String(Number(r.taxaAirbnb)),
       checkin: new Date(r.checkin).toISOString().slice(0, 10),
       checkout: new Date(r.checkout).toISOString().slice(0, 10),
       faxinas: String(r.faxinasUtilizadas ?? 1),
       nomeHospede: r.nomeHospede || "",
       cpfHospede: r.cpfHospede || "",
+      passaporteHospede: r.passaporteHospede || "",
       estrangeiro: r.estrangeiro === 1,
     });
     setOpen(true);
@@ -118,13 +120,14 @@ export default function Reservas() {
         codigo: form.codigo,
         valorBruto: Number(form.valorBruto),
         taxaLimpeza: Number(form.taxaLimpeza) || 0,
-        taxaAirbnbPct: Number(form.taxaAirbnb) || 4,
+        taxaAirbnb: Number(form.taxaAirbnb) || 0,
         checkin: form.checkin,
         checkout: form.checkout,
         noites: noites(form.checkin, form.checkout),
         faxinasUtilizadas: Number(form.faxinas) || 1,
         nomeHospede: form.nomeHospede || undefined,
         cpfHospede: form.cpfHospede || undefined,
+        passaporteHospede: form.passaporteHospede || undefined,
         estrangeiro: form.estrangeiro,
       });
     } else {
@@ -133,13 +136,14 @@ export default function Reservas() {
         codigo: form.codigo,
         valorBruto: Number(form.valorBruto),
         taxaLimpeza: Number(form.taxaLimpeza) || 0,
-        taxaAirbnbPct: Number(form.taxaAirbnb) || 4,
+        taxaAirbnb: Number(form.taxaAirbnb) || 0,
         checkin: form.checkin,
         checkout: form.checkout,
         noites: noites(form.checkin, form.checkout),
         faxinasUtilizadas: Number(form.faxinas) || 1,
         nomeHospede: form.nomeHospede || undefined,
         cpfHospede: form.cpfHospede || undefined,
+        passaporteHospede: form.passaporteHospede || undefined,
         estrangeiro: form.estrangeiro,
       });
     }
@@ -176,7 +180,7 @@ export default function Reservas() {
                     <Input value={form.taxaLimpeza} onChange={(e) => setForm({ ...form, taxaLimpeza: e.target.value })} type="number" step="0.01" />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label>Taxa Airbnb (%)</Label>
+                    <Label>Taxa Airbnb (R$)</Label>
                     <Input value={form.taxaAirbnb} onChange={(e) => setForm({ ...form, taxaAirbnb: e.target.value })} type="number" step="0.01" />
                   </div>
                 </div>
@@ -205,7 +209,7 @@ export default function Reservas() {
                     <RadioGroup
                       className="flex items-center gap-4 h-9"
                       value={form.estrangeiro ? "sim" : "nao"}
-                      onValueChange={(v) => setForm({ ...form, estrangeiro: v === "sim", cpfHospede: v === "sim" ? "" : form.cpfHospede })}
+                      onValueChange={(v) => setForm({ ...form, estrangeiro: v === "sim", cpfHospede: v === "sim" ? "" : form.cpfHospede, passaporteHospede: v === "nao" ? "" : form.passaporteHospede })}
                     >
                       <div className="flex items-center gap-1.5">
                         <RadioGroupItem value="nao" id="estrangeiro-nao" />
@@ -218,10 +222,15 @@ export default function Reservas() {
                     </RadioGroup>
                   </div>
                 </div>
-                {!form.estrangeiro && (
+                {!form.estrangeiro ? (
                   <div className="grid gap-1.5">
                     <Label>CPF do hóspede <span className="text-destructive">*</span></Label>
                     <Input value={form.cpfHospede} onChange={(e) => setForm({ ...form, cpfHospede: e.target.value })} placeholder="000.000.000-00" />
+                  </div>
+                ) : (
+                  <div className="grid gap-1.5">
+                    <Label>Passaporte</Label>
+                    <Input value={form.passaporteHospede} onChange={(e) => setForm({ ...form, passaporteHospede: e.target.value })} placeholder="Número do passaporte" />
                   </div>
                 )}
               </div>
@@ -302,13 +311,14 @@ function ReservaCard({
     codigo: string;
     valorBruto: string;
     taxaLimpeza: string;
-    taxaAirbnbPct: string;
+    taxaAirbnb: string;
     checkin: unknown;
     checkout: unknown;
     noites: number;
     faxinasUtilizadas: number | null;
     nomeHospede: string | null;
     cpfHospede: string | null;
+    passaporteHospede: string | null;
     estrangeiro: number;
     documentoUrl: string | null;
   };
@@ -361,6 +371,7 @@ function ReservaCard({
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                 <User className="h-3 w-3" /> {reserva.nomeHospede}
                 {reserva.cpfHospede && ` · ${formatCpfCnpj(reserva.cpfHospede)}`}
+                {reserva.passaporteHospede && ` · Passaporte ${reserva.passaporteHospede}`}
                 {reserva.estrangeiro === 1 && <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0 h-4">Estrangeiro</Badge>}
               </p>
             )}

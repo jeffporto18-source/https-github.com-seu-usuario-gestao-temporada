@@ -183,6 +183,13 @@
       "when": 1785264255375,
       "tag": "0025_add_contrato_garantia_documento",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1785694871964,
+      "tag": "0026_add_passaporte_e_taxa_airbnb_valor",
+      "breakpoints": true
     }
   ]
 }

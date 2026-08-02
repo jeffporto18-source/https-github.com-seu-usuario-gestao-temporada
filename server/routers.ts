@@ -864,13 +864,14 @@ export const appRouter = router({
           codigo: z.string().min(1),
           valorBruto: z.number().positive(),
           taxaLimpeza: z.number().min(0),
-          taxaAirbnbPct: z.number().min(0).max(100).default(4),
+          taxaAirbnb: z.number().min(0).default(0),
           checkin: z.string(),
           checkout: z.string(),
           noites: z.number().int().positive(),
           faxinasUtilizadas: z.number().int().min(0).default(1),
           nomeHospede: z.string().optional(),
           cpfHospede: z.string().optional(),
+          passaporteHospede: z.string().optional(),
           estrangeiro: z.boolean().default(false),
         }),
       )
@@ -881,7 +882,7 @@ export const appRouter = router({
           codigo: input.codigo,
           valorBruto: String(input.valorBruto),
           taxaLimpeza: String(input.taxaLimpeza),
-          taxaAirbnbPct: String(input.taxaAirbnbPct),
+          taxaAirbnb: String(input.taxaAirbnb),
           checkin: new Date(input.checkin),
           checkout: new Date(input.checkout),
           noites: input.noites,
@@ -889,6 +890,7 @@ export const appRouter = router({
           competencia: input.checkin.slice(0, 7),
           nomeHospede: input.nomeHospede || null,
           cpfHospede: input.cpfHospede || null,
+          passaporteHospede: input.passaporteHospede || null,
           estrangeiro: input.estrangeiro ? 1 : 0,
         });
 
@@ -924,23 +926,24 @@ export const appRouter = router({
           codigo: z.string().optional(),
           valorBruto: z.number().positive().optional(),
           taxaLimpeza: z.number().min(0).optional(),
-          taxaAirbnbPct: z.number().min(0).max(100).optional(),
+          taxaAirbnb: z.number().min(0).optional(),
           checkin: z.string().optional(),
           checkout: z.string().optional(),
           noites: z.number().int().positive().optional(),
           faxinasUtilizadas: z.number().int().min(0).optional(),
           nomeHospede: z.string().optional(),
           cpfHospede: z.string().optional(),
+          passaporteHospede: z.string().optional(),
           estrangeiro: z.boolean().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { id, valorBruto, taxaLimpeza, taxaAirbnbPct, checkin, checkout, faxinasUtilizadas, estrangeiro, ...rest } = input;
+        const { id, valorBruto, taxaLimpeza, taxaAirbnb, checkin, checkout, faxinasUtilizadas, estrangeiro, ...rest } = input;
 
         // Verificar se há NFS-e emitida — bloquear edição de campos fiscais e de período
         const notasExistentes = await db.listInvoicesByReservation(ctx.user.id, id);
         if (notasExistentes.length > 0) {
-          const camposBloqueados = valorBruto !== undefined || taxaLimpeza !== undefined || taxaAirbnbPct !== undefined || checkin !== undefined || checkout !== undefined || rest.codigo !== undefined;
+          const camposBloqueados = valorBruto !== undefined || taxaLimpeza !== undefined || taxaAirbnb !== undefined || checkin !== undefined || checkout !== undefined || rest.codigo !== undefined;
           if (camposBloqueados) {
             throw new Error("Não é possível alterar valores, período ou código de uma reserva com NFS-e já emitida. Cancele as notas primeiro.");
           }
@@ -950,7 +953,7 @@ export const appRouter = router({
           ...rest,
           ...(valorBruto !== undefined ? { valorBruto: String(valorBruto) } : {}),
           ...(taxaLimpeza !== undefined ? { taxaLimpeza: String(taxaLimpeza) } : {}),
-          ...(taxaAirbnbPct !== undefined ? { taxaAirbnbPct: String(taxaAirbnbPct) } : {}),
+          ...(taxaAirbnb !== undefined ? { taxaAirbnb: String(taxaAirbnb) } : {}),
           ...(checkin !== undefined ? { checkin: new Date(checkin), competencia: checkin.slice(0, 7) } : {}),
           ...(checkout !== undefined ? { checkout: new Date(checkout) } : {}),
           ...(faxinasUtilizadas !== undefined ? { faxinasUtilizadas } : {}),
@@ -998,7 +1001,7 @@ export const appRouter = router({
               codigo: z.string(),
               valorBruto: z.number(),
               taxaLimpeza: z.number(),
-              taxaAirbnbPct: z.number().default(4),
+              taxaAirbnb: z.number().default(0),
               checkin: z.string(),
               checkout: z.string(),
               noites: z.number().int().positive(),
@@ -1020,7 +1023,7 @@ export const appRouter = router({
             codigo: row.codigo,
             valorBruto: String(row.valorBruto),
             taxaLimpeza: String(row.taxaLimpeza),
-            taxaAirbnbPct: String(row.taxaAirbnbPct),
+            taxaAirbnb: String(row.taxaAirbnb),
             checkin: new Date(row.checkin),
             checkout: new Date(row.checkout),
             noites: row.noites,
@@ -1089,7 +1092,7 @@ export const appRouter = router({
           noites: reserva.noites,
           valorBruto: num(reserva.valorBruto),
           taxaLimpeza: num(reserva.taxaLimpeza),
-          taxaAirbnbPct: num(reserva.taxaAirbnbPct),
+          taxaAirbnb: num(reserva.taxaAirbnb),
           comissaoPct: num(prop.comissaoPct),
           admin: {
             cnpj: "00.000.000/0001-00",
@@ -1176,7 +1179,7 @@ export const appRouter = router({
             noites: r.noites,
             valorBruto: num(r.valorBruto),
             taxaLimpeza: num(r.taxaLimpeza),
-            taxaAirbnbPct: num(r.taxaAirbnbPct),
+            taxaAirbnb: num(r.taxaAirbnb),
             comissaoPct,
             admin: { cnpj: "", razaoSocial: "" },
             proprietario: { nome: cliente?.nome || "", cpfCnpj: cliente?.cpfCnpj || "", tipo: cliente?.tipo || "PF" },

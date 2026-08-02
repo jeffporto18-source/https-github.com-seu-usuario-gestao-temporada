@@ -22,6 +22,9 @@ interface CsvRow {
   valorBruto: number;
   taxaLimpeza: number;
   taxaAirbnb: number;
+  outrasTaxas: number;
+  valorLiquidoRecebido: number;
+  nomeHospede?: string;
   checkin: string;
   checkout: string;
   noites: number;
@@ -50,6 +53,36 @@ const COLUMN_MAP: Record<string, keyof CsvRow> = {
   "cleaning fee": "taxaLimpeza",
   "taxa de limpeza": "taxaLimpeza",
   "limpeza": "taxaLimpeza",
+  // Taxa Airbnb (taxa de serviço cobrada do anfitrião)
+  "host fee": "taxaAirbnb",
+  "host service fee": "taxaAirbnb",
+  "service fee": "taxaAirbnb",
+  "airbnb fee": "taxaAirbnb",
+  "taxa airbnb": "taxaAirbnb",
+  "taxa de serviço": "taxaAirbnb",
+  "taxa de servico": "taxaAirbnb",
+  // Outras taxas (impostos de ocupação, turismo, etc.)
+  "occupancy taxes": "outrasTaxas",
+  "occupancy tax": "outrasTaxas",
+  "taxes": "outrasTaxas",
+  "tourist tax": "outrasTaxas",
+  "outras taxas": "outrasTaxas",
+  "impostos": "outrasTaxas",
+  // Valor líquido recebido
+  "paid you": "valorLiquidoRecebido",
+  "amount paid to host": "valorLiquidoRecebido",
+  "net amount": "valorLiquidoRecebido",
+  "you earned": "valorLiquidoRecebido",
+  "net": "valorLiquidoRecebido",
+  "valor líquido": "valorLiquidoRecebido",
+  "valor liquido": "valorLiquidoRecebido",
+  "valor líquido recebido": "valorLiquidoRecebido",
+  "valor recebido": "valorLiquidoRecebido",
+  // Nome do hóspede
+  "guest name": "nomeHospede",
+  "guest": "nomeHospede",
+  "hóspede": "nomeHospede",
+  "hospede": "nomeHospede",
   // Check-in
   "start date": "checkin",
   "check-in": "checkin",
@@ -87,8 +120,16 @@ function parseDate(val: string): string | null {
 
 function parseCurrency(val: string): number {
   if (!val) return 0;
-  // Remove R$, $, espaços, pontos de milhar, troca vírgula por ponto
-  const cleaned = val.replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
+  let cleaned = val.replace(/[R$\s]/g, "");
+  // Detecta o separador decimal pela última ocorrência de "," ou "."
+  // (formato BR "1.234,56" vs. formato US "1,234.56" ou "900.00")
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  if (lastComma > lastDot) {
+    cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot > lastComma) {
+    cleaned = cleaned.replace(/,/g, "");
+  }
   const n = parseFloat(cleaned);
   return isNaN(n) ? 0 : Math.abs(n);
 }
@@ -105,7 +146,7 @@ function parseCsv(text: string): { headers: string[]; rows: string[][] } {
 }
 
 function mapRow(headers: string[], row: string[], defaultFaxinas: number): CsvRow | null {
-  const mapped: Partial<CsvRow> = { taxaAirbnb: 0, taxaLimpeza: 0, faxinasUtilizadas: defaultFaxinas };
+  const mapped: Partial<CsvRow> = { taxaAirbnb: 0, taxaLimpeza: 0, outrasTaxas: 0, valorLiquidoRecebido: 0, faxinasUtilizadas: defaultFaxinas };
 
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];
@@ -122,6 +163,18 @@ function mapRow(headers: string[], row: string[], defaultFaxinas: number): CsvRo
         break;
       case "taxaLimpeza":
         mapped.taxaLimpeza = parseCurrency(val);
+        break;
+      case "taxaAirbnb":
+        mapped.taxaAirbnb = parseCurrency(val);
+        break;
+      case "outrasTaxas":
+        mapped.outrasTaxas = parseCurrency(val);
+        break;
+      case "valorLiquidoRecebido":
+        mapped.valorLiquidoRecebido = parseCurrency(val);
+        break;
+      case "nomeHospede":
+        mapped.nomeHospede = val || undefined;
         break;
       case "checkin":
         mapped.checkin = parseDate(val) || "";
@@ -282,7 +335,8 @@ export default function ImportarCsv() {
           />
           <p className="text-xs text-muted-foreground mt-1">
             Aceita o CSV exportado do Airbnb (Earnings → Paid → Get report). Separador: vírgula ou ponto-e-vírgula.
-            Colunas reconhecidas: Confirmation Code, Start Date, End Date, Amount, Cleaning Fee, Nights.
+            Colunas reconhecidas: Confirmation Code, Start Date, End Date, Amount, Cleaning Fee, Nights, Host Fee,
+            Occupancy Taxes, Paid You (ou Net Amount), Guest Name.
           </p>
         </div>
 
@@ -314,11 +368,15 @@ export default function ImportarCsv() {
                 <thead className="bg-secondary sticky top-0">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">Código</th>
+                    <th className="px-3 py-2 text-left font-medium">Hóspede</th>
                     <th className="px-3 py-2 text-left font-medium">Check-in</th>
                     <th className="px-3 py-2 text-left font-medium">Check-out</th>
                     <th className="px-3 py-2 text-right font-medium">Noites</th>
                     <th className="px-3 py-2 text-right font-medium">Valor</th>
                     <th className="px-3 py-2 text-right font-medium">Limpeza</th>
+                    <th className="px-3 py-2 text-right font-medium">Taxa Airbnb</th>
+                    <th className="px-3 py-2 text-right font-medium">Outras taxas</th>
+                    <th className="px-3 py-2 text-right font-medium">Líquido</th>
                     <th className="px-3 py-2 text-right font-medium">Faxinas</th>
                   </tr>
                 </thead>
@@ -326,11 +384,15 @@ export default function ImportarCsv() {
                   {parsedRows.slice(0, 50).map((r, i) => (
                     <tr key={i} className="border-t border-border">
                       <td className="px-3 py-2 font-mono text-xs">{r.codigo}</td>
+                      <td className="px-3 py-2">{r.nomeHospede || "—"}</td>
                       <td className="px-3 py-2">{r.checkin}</td>
                       <td className="px-3 py-2">{r.checkout}</td>
                       <td className="px-3 py-2 text-right">{r.noites}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{brl(r.valorBruto)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{brl(r.taxaLimpeza)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{brl(r.taxaAirbnb)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{brl(r.outrasTaxas)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{brl(r.valorLiquidoRecebido)}</td>
                       <td className="px-3 py-2 text-right">{r.faxinasUtilizadas}</td>
                     </tr>
                   ))}

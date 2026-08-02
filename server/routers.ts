@@ -1104,6 +1104,11 @@ export const appRouter = router({
         // limpa notas anteriores desta reserva (idempotência simples)
         await db.deleteInvoicesByReservation(ctx.user.id, input.reservationId);
 
+        // Imóvel administrado diretamente pelo próprio proprietário (ex.: holding com
+        // imóveis próprios) não tem administradora cobrando comissão de terceiro —
+        // não faz sentido emitir nota de comissão para si mesmo.
+        const isPropria = prop.tipoAdministracao === "propria";
+
         const resultado = processarOperacao({
           reservaCodigo: reserva.codigo,
           propriedadeApelido: prop.apelido,
@@ -1113,7 +1118,7 @@ export const appRouter = router({
           valorBruto: num(reserva.valorBruto),
           taxaLimpeza: num(reserva.taxaLimpeza),
           taxaAirbnb: num(reserva.taxaAirbnb),
-          comissaoPct: num(prop.comissaoPct),
+          comissaoPct: isPropria ? 0 : num(prop.comissaoPct),
           admin: {
             cnpj: "00.000.000/0001-00",
             razaoSocial: ctx.user.name || "Administradora",
@@ -1124,21 +1129,24 @@ export const appRouter = router({
           fiscalCategory: (cliente?.fiscalCategory as "pj" | "pf_cbs_ibs" | "pf_isento") ?? "pj",
         });
 
-        // Emite nota de comissão (sempre)
-        const respComissao = await emitirNfse(resultado.notaComissao);
-        await db.createInvoice({
-          ownerId: ctx.user.id,
-          reservationId: reserva.id,
-          propertyId: prop.id,
-          tipo: "comissao",
-          codigoServico: COD_INTERMEDIACAO,
-          valorServicos: String(resultado.comissaoAdmin),
-          status: "autorizada",
-          chaveAcesso: respComissao.chaveAcesso,
-          numeroNfse: respComissao.numeroNfse,
-          payloadJson: JSON.stringify(resultado.notaComissao),
-          respostaJson: JSON.stringify(respComissao),
-        });
+        // Emite nota de comissão apenas quando há administradora/gestor de fato
+        let respComissao = null;
+        if (!isPropria) {
+          respComissao = await emitirNfse(resultado.notaComissao);
+          await db.createInvoice({
+            ownerId: ctx.user.id,
+            reservationId: reserva.id,
+            propertyId: prop.id,
+            tipo: "comissao",
+            codigoServico: COD_INTERMEDIACAO,
+            valorServicos: String(resultado.comissaoAdmin),
+            status: "autorizada",
+            chaveAcesso: respComissao.chaveAcesso,
+            numeroNfse: respComissao.numeroNfse,
+            payloadJson: JSON.stringify(resultado.notaComissao),
+            respostaJson: JSON.stringify(respComissao),
+          });
+        }
 
         // Nota de locação: apenas se não for PF isento
         let respLocacao = null;
@@ -1187,7 +1195,7 @@ export const appRouter = router({
         let cbs = 0;
         let ibs = 0;
         let liquidoProp = 0;
-        const comissaoPct = num(prop.comissaoPct);
+        const comissaoPct = prop.tipoAdministracao === "propria" ? 0 : num(prop.comissaoPct);
         let totalParcelasLonga = 0;
 
         for (const r of reservas) {
@@ -1333,7 +1341,7 @@ export const appRouter = router({
         let receitaMes = 0;
         for (const r of reservas) {
           const p = propMap.get(r.propertyId);
-          const comissaoPct = p ? num(p.comissaoPct) : 0;
+          const comissaoPct = p && p.tipoAdministracao !== "propria" ? num(p.comissaoPct) : 0;
           const receita = num(r.valorBruto) + num(r.taxaLimpeza);
           receitaMes += receita;
           comissaoMes += receita * (comissaoPct / 100);

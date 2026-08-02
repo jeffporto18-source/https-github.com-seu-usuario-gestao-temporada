@@ -48,7 +48,7 @@ export default function Reservas() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<ReservaForm>(emptyForm);
   const [notaOpen, setNotaOpen] = useState(false);
-  const [notaData, setNotaData] = useState<{ locacao: unknown; comissao: unknown } | null>(null);
+  const [notaData, setNotaData] = useState<{ locacao: unknown; comissao: unknown | null } | null>(null);
 
   const enabled = !!propertyId;
   const { data: reservas, isLoading } = trpc.reservations.list.useQuery(
@@ -76,9 +76,10 @@ export default function Reservas() {
   const emitir = trpc.reservations.emitir.useMutation({
     onSuccess: (res) => {
       utils.reservations.list.invalidate();
-      setNotaData({ locacao: res.resultado.notaLocacao, comissao: res.resultado.notaComissao });
+      utils.reservations.invoices.invalidate();
+      setNotaData({ locacao: res.resultado.notaLocacao, comissao: res.respComissao ? res.resultado.notaComissao : null });
       setNotaOpen(true);
-      toast.success("NFS-e emitidas (locação + comissão).");
+      toast.success(res.respComissao ? "NFS-e emitidas (locação + comissão)." : "NFS-e de locação emitida.");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -297,16 +298,18 @@ export default function Reservas() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-serif flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-primary" /> NFS-e emitidas
+              <CheckCircle2 className="h-5 w-5 text-primary" /> {notaData?.comissao ? "NFS-e emitidas" : "NFS-e emitida"}
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Duas notas geradas para esta reserva. Os payloads abaixo são exatamente o que seria enviado ao provedor fiscal
-            (Nuvem Fiscal / Focus NFe) no padrão nacional.
+            {notaData?.comissao
+              ? "Duas notas geradas para esta reserva."
+              : "Uma nota gerada para esta reserva (imóvel administrado diretamente pelo proprietário, sem comissão)."}{" "}
+            Os payloads abaixo são exatamente o que seria enviado ao provedor fiscal (Nuvem Fiscal / Focus NFe) no padrão nacional.
           </p>
           <div className="grid gap-4 max-h-[55vh] overflow-auto">
             <PayloadBox title="Nota de Locação (proprietário — 99.03.01)" data={notaData?.locacao} />
-            <PayloadBox title="Nota de Comissão (administradora)" data={notaData?.comissao} />
+            {notaData?.comissao != null && <PayloadBox title="Nota de Comissão (administradora)" data={notaData.comissao} />}
           </div>
           <DialogFooter>
             <Button onClick={() => setNotaOpen(false)}>Fechar</Button>

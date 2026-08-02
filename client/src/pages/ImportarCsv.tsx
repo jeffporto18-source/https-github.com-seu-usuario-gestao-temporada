@@ -25,14 +25,24 @@ interface CsvRow {
   outrasTaxas: number;
   valorLiquidoRecebido: number;
   nomeHospede?: string;
+  cpfHospede?: string;
+  passaporteHospede?: string;
+  estrangeiro: boolean;
   checkin: string;
   checkout: string;
   noites: number;
   faxinasUtilizadas: number;
 }
 
+// Campos lógicos reconhecidos no CSV — mais amplos que CsvRow porque alguns
+// (pago, ganhosBrutos, tipoDoc, documento) são usados só para calcular outros campos.
+type LogicalField =
+  | "codigo" | "valorBruto" | "taxaLimpeza" | "taxaAirbnb" | "outrasTaxas"
+  | "valorLiquidoRecebido" | "nomeHospede" | "checkin" | "checkout" | "noites"
+  | "tipoDoc" | "documento" | "pago" | "ganhosBrutos";
+
 // Mapeamento flexível de colunas do CSV do Airbnb
-const COLUMN_MAP: Record<string, keyof CsvRow> = {
+const COLUMN_MAP: Record<string, LogicalField> = {
   // Código da reserva
   "confirmation code": "codigo",
   "código de confirmação": "codigo",
@@ -61,14 +71,15 @@ const COLUMN_MAP: Record<string, keyof CsvRow> = {
   "taxa airbnb": "taxaAirbnb",
   "taxa de serviço": "taxaAirbnb",
   "taxa de servico": "taxaAirbnb",
-  // Outras taxas (impostos de ocupação, turismo, etc.)
+  // Outras taxas (impostos de ocupação, turismo, etc.) — mapeamento direto,
+  // usado só quando o CSV não tem "Pago"+"Ganhos brutos" (ver cálculo abaixo)
   "occupancy taxes": "outrasTaxas",
   "occupancy tax": "outrasTaxas",
   "taxes": "outrasTaxas",
   "tourist tax": "outrasTaxas",
   "outras taxas": "outrasTaxas",
   "impostos": "outrasTaxas",
-  // Valor líquido recebido
+  // Valor líquido recebido — mapeamento direto (mesmo caso acima)
   "paid you": "valorLiquidoRecebido",
   "amount paid to host": "valorLiquidoRecebido",
   "net amount": "valorLiquidoRecebido",
@@ -83,11 +94,23 @@ const COLUMN_MAP: Record<string, keyof CsvRow> = {
   "guest": "nomeHospede",
   "hóspede": "nomeHospede",
   "hospede": "nomeHospede",
+  // Tipo de documento do hóspede (CPF ou Passaporte)
+  "tipo doc": "tipoDoc",
+  "tipo documento": "tipoDoc",
+  "document type": "tipoDoc",
+  // Número do documento
+  "documento": "documento",
+  "document": "documento",
+  // Valor pago (aparece na linha-resumo em branco acima da reserva, neste modelo)
+  "pago": "pago",
+  // Ganhos brutos totais da reserva
+  "ganhos brutos": "ganhosBrutos",
   // Check-in
   "start date": "checkin",
   "check-in": "checkin",
   "checkin": "checkin",
   "data de entrada": "checkin",
+  "data de início": "checkin",
   "início": "checkin",
   "inicio": "checkin",
   // Check-out
@@ -96,26 +119,57 @@ const COLUMN_MAP: Record<string, keyof CsvRow> = {
   "checkout": "checkout",
   "data de saída": "checkout",
   "data de saida": "checkout",
+  "data de término": "checkout",
   "fim": "checkout",
   // Noites
   "nights": "noites",
   "noites": "noites",
+  "diárias": "noites",
+  "diarias": "noites",
+  "darias": "noites",
   "# of nights": "noites",
 };
 
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Interpreta datas "D/M/AAAA" ou "M/D/AAAA" de forma ambígua: quando um dos dois
+ * números é > 12 ele só pode ser o dia; quando os dois são ≤ 12 (ambíguo de
+ * verdade), assume-se dia/mês (formato BR). O check-out real é recalculado a
+ * partir do check-in + noites (ver mapRow), então essa função só precisa acertar
+ * o check-in.
+ */
+function parseAmbiguousDate(val: string): { y: number; m: number; d: number } | null {
+  const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const a = parseInt(m[1], 10);
+  const b = parseInt(m[2], 10);
+  const year = parseInt(m[3], 10);
+  let day: number, month: number;
+  if (a > 12) { day = a; month = b; }
+  else if (b > 12) { day = b; month = a; }
+  else { day = a; month = b; } // ambíguo: assume dia/mês
+  return { y: year, m: month, d: day };
+}
+
 function parseDate(val: string): string | null {
   if (!val) return null;
-  // Tenta formatos comuns: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY
   const isoMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-  const brMatch = val.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
-  const usMatch = val.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (usMatch) return `${usMatch[3]}-${usMatch[1]}-${usMatch[2]}`;
-  // Tenta Date nativo
+  const ambiguous = parseAmbiguousDate(val);
+  if (ambiguous) return `${ambiguous.y}-${String(ambiguous.m).padStart(2, "0")}-${String(ambiguous.d).padStart(2, "0")}`;
   const d = new Date(val);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return null;
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
 }
 
 function parseCurrency(val: string): number {
@@ -134,73 +188,122 @@ function parseCurrency(val: string): number {
   return isNaN(n) ? 0 : Math.abs(n);
 }
 
+/** Divide uma linha de CSV respeitando campos entre aspas (que podem conter o separador). */
+function splitCsvLine(line: string, sep: string): string[] {
+  const result: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        cur += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === sep) {
+      result.push(cur.trim());
+      cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
 function parseCsv(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return { headers: [], rows: [] };
   const sep = lines[0].includes(";") ? ";" : ",";
-  const headers = lines[0].split(sep).map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
-  const rows = lines.slice(1).map((line) =>
-    line.split(sep).map((cell) => cell.trim().replace(/^"|"$/g, "")),
-  );
+  const headers = splitCsvLine(lines[0], sep).map((h) => h.toLowerCase());
+  const rows = lines.slice(1).map((line) => splitCsvLine(line, sep));
   return { headers, rows };
 }
 
-function mapRow(headers: string[], row: string[], defaultFaxinas: number): CsvRow | null {
-  const mapped: Partial<CsvRow> = { taxaAirbnb: 0, taxaLimpeza: 0, outrasTaxas: 0, valorLiquidoRecebido: 0, faxinasUtilizadas: defaultFaxinas };
-
+/** Extrai os campos lógicos reconhecidos de uma linha, sem interpretar/validar ainda. */
+function extractFields(headers: string[], row: string[]): Partial<Record<LogicalField, string>> {
+  const out: Partial<Record<LogicalField, string>> = {};
   for (let i = 0; i < headers.length; i++) {
-    const h = headers[i];
-    const field = COLUMN_MAP[h];
-    if (!field) continue;
-    const val = row[i] || "";
+    const field = COLUMN_MAP[headers[i]];
+    if (field && row[i]) out[field] = row[i];
+  }
+  return out;
+}
 
-    switch (field) {
-      case "codigo":
-        mapped.codigo = val;
-        break;
-      case "valorBruto":
-        mapped.valorBruto = parseCurrency(val);
-        break;
-      case "taxaLimpeza":
-        mapped.taxaLimpeza = parseCurrency(val);
-        break;
-      case "taxaAirbnb":
-        mapped.taxaAirbnb = parseCurrency(val);
-        break;
-      case "outrasTaxas":
-        mapped.outrasTaxas = parseCurrency(val);
-        break;
-      case "valorLiquidoRecebido":
-        mapped.valorLiquidoRecebido = parseCurrency(val);
-        break;
-      case "nomeHospede":
-        mapped.nomeHospede = val || undefined;
-        break;
-      case "checkin":
-        mapped.checkin = parseDate(val) || "";
-        break;
-      case "checkout":
-        mapped.checkout = parseDate(val) || "";
-        break;
-      case "noites":
-        mapped.noites = parseInt(val) || 0;
-        break;
-    }
+/**
+ * Interpreta uma linha já extraída em uma reserva. `lastPago` é o valor da coluna
+ * "Pago" mais recente visto (pode vir de uma linha-resumo em branco acima desta,
+ * como no modelo com "Código de Confirmação" + "Pago" + "Ganhos brutos").
+ * Retorna a reserva (ou null se a linha não tem dados suficientes — ex.: linha-resumo
+ * em branco) e o "Pago" desta linha, se houver, para atualizar o valor corrente.
+ */
+function mapRow(
+  fields: Partial<Record<LogicalField, string>>,
+  defaultFaxinas: number,
+  lastPago: number | null,
+): { row: CsvRow | null; pagoDesta: number | null } {
+  const pagoDesta = fields.pago ? parseCurrency(fields.pago) : null;
+
+  const codigo = fields.codigo;
+  const valorBruto = fields.valorBruto ? parseCurrency(fields.valorBruto) : 0;
+  if (!codigo || !valorBruto) return { row: null, pagoDesta };
+
+  const noites = fields.noites ? parseInt(fields.noites, 10) || 0 : 0;
+  const checkin = fields.checkin ? parseDate(fields.checkin) : null;
+  if (!checkin) return { row: null, pagoDesta };
+  const noitesFinal = noites > 0 ? noites : Math.max(
+    1,
+    fields.checkout
+      ? Math.round((new Date(parseDate(fields.checkout) || checkin).getTime() - new Date(checkin).getTime()) / 86400000)
+      : 1,
+  );
+  // Check-out sempre recalculado a partir do check-in + noites: as datas de
+  // "término" em relatórios exportados costumam vir em formato inconsistente
+  // (ora dia/mês, ora mês/dia) e "noites" é o dado confiável.
+  const checkout = addDaysIso(checkin, noitesFinal);
+
+  const taxaAirbnb = fields.taxaAirbnb ? parseCurrency(fields.taxaAirbnb) : 0;
+  const taxaLimpeza = fields.taxaLimpeza ? parseCurrency(fields.taxaLimpeza) : 0;
+
+  let outrasTaxas = fields.outrasTaxas ? parseCurrency(fields.outrasTaxas) : 0;
+  let valorLiquidoRecebido = fields.valorLiquidoRecebido ? parseCurrency(fields.valorLiquidoRecebido) : 0;
+  if (fields.ganhosBrutos && lastPago !== null) {
+    const ganhosBrutos = parseCurrency(fields.ganhosBrutos);
+    valorLiquidoRecebido = lastPago;
+    // Outras taxas = Ganhos brutos − Pago − Taxa de serviço (pode dar negativo;
+    // isso é esperado quando o relatório não reconcilia por completo).
+    outrasTaxas = round2(ganhosBrutos - lastPago - taxaAirbnb);
   }
 
-  // Validação mínima
-  if (!mapped.codigo || !mapped.checkin || !mapped.checkout) return null;
-  if (!mapped.valorBruto || mapped.valorBruto <= 0) return null;
+  const tipoDoc = (fields.tipoDoc || "").trim().toLowerCase();
+  const documento = (fields.documento || "").trim() || undefined;
+  const estrangeiro = tipoDoc.includes("passaporte") || tipoDoc.includes("passport");
+  const cpfHospede = !estrangeiro ? documento : undefined;
+  const passaporteHospede = estrangeiro ? documento : undefined;
 
-  // Calcular noites se não veio no CSV
-  if (!mapped.noites || mapped.noites <= 0) {
-    const diff = Math.round(
-      (new Date(mapped.checkout).getTime() - new Date(mapped.checkin).getTime()) / 86400000,
-    );
-    mapped.noites = Math.max(1, diff);
-  }
-
-  return mapped as CsvRow;
+  return {
+    row: {
+      codigo,
+      valorBruto,
+      taxaLimpeza,
+      taxaAirbnb,
+      outrasTaxas,
+      valorLiquidoRecebido,
+      nomeHospede: fields.nomeHospede || undefined,
+      cpfHospede,
+      passaporteHospede,
+      estrangeiro,
+      checkin,
+      checkout,
+      noites: noitesFinal,
+      faxinasUtilizadas: defaultFaxinas,
+    },
+    pagoDesta,
+  };
 }
 
 export default function ImportarCsv() {
@@ -245,12 +348,17 @@ export default function ImportarCsv() {
       const errs: string[] = [];
       const mapped: CsvRow[] = [];
       const defaultFax = Number(faxinasPadrao) || 1;
+      let lastPago: number | null = null;
 
       for (let i = 0; i < rows.length; i++) {
-        const row = mapRow(headers, rows[i], defaultFax);
+        const fields = extractFields(headers, rows[i]);
+        const { row, pagoDesta } = mapRow(fields, defaultFax, lastPago);
+        if (pagoDesta !== null) lastPago = pagoDesta;
         if (row) {
           mapped.push(row);
-        } else {
+        } else if (fields.codigo) {
+          // Só reporta erro se a linha tinha um código de reserva (ou seja,
+          // não é uma linha-resumo/em branco do relatório).
           errs.push(`Linha ${i + 2}: dados insuficientes (código, datas ou valor ausentes)`);
         }
       }
@@ -334,9 +442,10 @@ export default function ImportarCsv() {
             onChange={handleFile}
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Aceita o CSV exportado do Airbnb (Earnings → Paid → Get report). Separador: vírgula ou ponto-e-vírgula.
-            Colunas reconhecidas: Confirmation Code, Start Date, End Date, Amount, Cleaning Fee, Nights, Host Fee,
-            Occupancy Taxes, Paid You (ou Net Amount), Guest Name.
+            Aceita o CSV exportado do Airbnb (Earnings → Paid → Get report) ou o modelo com colunas em português
+            (Código de Confirmação, Data de início/término, darias, Hóspede, tipo doc, Documento, Valor, Pago,
+            Taxa de serviço, Taxa de limpeza, Ganhos brutos). Separador: vírgula ou ponto-e-vírgula.
+            "tipo doc" = CPF ou Passaporte direciona o documento e marca hóspede estrangeiro automaticamente.
           </p>
         </div>
 
@@ -369,6 +478,7 @@ export default function ImportarCsv() {
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">Código</th>
                     <th className="px-3 py-2 text-left font-medium">Hóspede</th>
+                    <th className="px-3 py-2 text-left font-medium">Documento</th>
                     <th className="px-3 py-2 text-left font-medium">Check-in</th>
                     <th className="px-3 py-2 text-left font-medium">Check-out</th>
                     <th className="px-3 py-2 text-right font-medium">Noites</th>
@@ -385,6 +495,11 @@ export default function ImportarCsv() {
                     <tr key={i} className="border-t border-border">
                       <td className="px-3 py-2 font-mono text-xs">{r.codigo}</td>
                       <td className="px-3 py-2">{r.nomeHospede || "—"}</td>
+                      <td className="px-3 py-2">
+                        {r.estrangeiro
+                          ? (r.passaporteHospede ? `Passaporte ${r.passaporteHospede}` : "—")
+                          : (r.cpfHospede ? `CPF ${r.cpfHospede}` : "—")}
+                      </td>
                       <td className="px-3 py-2">{r.checkin}</td>
                       <td className="px-3 py-2">{r.checkout}</td>
                       <td className="px-3 py-2 text-right">{r.noites}</td>

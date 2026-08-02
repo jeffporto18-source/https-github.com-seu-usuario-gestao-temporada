@@ -47,7 +47,7 @@ describe("dre.porUnidade", () => {
       tipo: "PF",
     });
     (db.listReservations as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { id: 1, codigo: "R1", valorBruto: "1800", taxaLimpeza: "200", taxaAirbnb: "80", noites: 3, checkin: new Date("2026-06-01"), checkout: new Date("2026-06-04") },
+      { id: 1, codigo: "R1", valorBruto: "1800", taxaLimpeza: "200", taxaAirbnb: "80", noites: 3, checkin: "2026-06-01", checkout: "2026-06-04" },
     ]);
     (db.listLedgerEntriesNaCompetencia as ReturnType<typeof vi.fn>).mockImplementation((_ownerId: number, _propertyId: number, _competencia: string, grupo: string) => {
       if (grupo === "despesa_variavel") {

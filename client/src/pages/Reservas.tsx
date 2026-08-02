@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, FileText, CalendarDays, CheckCircle2, Loader2, Pencil, Upload, ExternalLink, User } from "lucide-react";
-import { brl, competenciaAtual, formatCpfCnpj } from "@/lib/format";
+import { brl, competenciaAtual, formatCpfCnpj, formatDate } from "@/lib/format";
 import { PageHeader, EmptyState } from "./Clientes";
 import { UnitPeriodFilter } from "@/components/UnitPeriodFilter";
 
@@ -98,8 +98,8 @@ export default function Reservas() {
       taxaAirbnb: String(Number(r.taxaAirbnb)),
       outrasTaxas: String(Number(r.outrasTaxas)),
       valorLiquidoRecebido: String(Number(r.valorLiquidoRecebido)),
-      checkin: new Date(r.checkin).toISOString().slice(0, 10),
-      checkout: new Date(r.checkout).toISOString().slice(0, 10),
+      checkin: r.checkin,
+      checkout: r.checkout,
       faxinas: String(r.faxinasUtilizadas ?? 1),
       nomeHospede: r.nomeHospede || "",
       cpfHospede: r.cpfHospede || "",
@@ -330,8 +330,8 @@ function ReservaCard({
     valorBruto: string;
     taxaLimpeza: string;
     taxaAirbnb: string;
-    checkin: unknown;
-    checkout: unknown;
+    checkin: string;
+    checkout: string;
     noites: number;
     faxinasUtilizadas: number | null;
     nomeHospede: string | null;
@@ -348,7 +348,7 @@ function ReservaCard({
   const utils = trpc.useUtils();
   const { data: notas } = trpc.reservations.invoices.useQuery({ reservationId: reserva.id });
   const emitida = (notas?.length ?? 0) > 0;
-  const fmt = (d: unknown) => new Date(d as string).toLocaleDateString("pt-BR");
+  const fmt = formatDate;
 
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);

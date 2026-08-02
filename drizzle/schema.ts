@@ -167,8 +167,8 @@ export const reservations = mysqlTable("reservations", {
   // outras taxas e valor líquido recebido, ambos digitados livremente em R$
   outrasTaxas: decimal("outrasTaxas", { precision: 12, scale: 2 }).notNull().default("0.00"),
   valorLiquidoRecebido: decimal("valorLiquidoRecebido", { precision: 12, scale: 2 }).notNull().default("0.00"),
-  checkin: date("checkin").notNull(),
-  checkout: date("checkout").notNull(),
+  checkin: date("checkin", { mode: "string" }).notNull(),
+  checkout: date("checkout", { mode: "string" }).notNull(),
   noites: int("noites").notNull().default(1),
   // Faxinas utilizadas nesta reserva (gera despesa automática)
   faxinasUtilizadas: int("faxinasUtilizadas").notNull().default(1),

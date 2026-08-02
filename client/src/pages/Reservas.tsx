@@ -25,6 +25,8 @@ interface ReservaForm {
   valorBruto: string;
   taxaLimpeza: string;
   taxaAirbnb: string;
+  outrasTaxas: string;
+  valorLiquidoRecebido: string;
   checkin: string;
   checkout: string;
   faxinas: string;
@@ -34,7 +36,7 @@ interface ReservaForm {
   estrangeiro: boolean;
 }
 
-const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "0", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", cpfHospede: "", passaporteHospede: "", estrangeiro: false };
+const emptyForm: ReservaForm = { codigo: "", valorBruto: "", taxaLimpeza: "", taxaAirbnb: "0", outrasTaxas: "0", valorLiquidoRecebido: "0", checkin: "", checkout: "", faxinas: "1", nomeHospede: "", cpfHospede: "", passaporteHospede: "", estrangeiro: false };
 
 export default function Reservas() {
   const utils = trpc.useUtils();
@@ -94,6 +96,8 @@ export default function Reservas() {
       valorBruto: String(Number(r.valorBruto)),
       taxaLimpeza: String(Number(r.taxaLimpeza)),
       taxaAirbnb: String(Number(r.taxaAirbnb)),
+      outrasTaxas: String(Number(r.outrasTaxas)),
+      valorLiquidoRecebido: String(Number(r.valorLiquidoRecebido)),
       checkin: new Date(r.checkin).toISOString().slice(0, 10),
       checkout: new Date(r.checkout).toISOString().slice(0, 10),
       faxinas: String(r.faxinasUtilizadas ?? 1),
@@ -121,6 +125,8 @@ export default function Reservas() {
         valorBruto: Number(form.valorBruto),
         taxaLimpeza: Number(form.taxaLimpeza) || 0,
         taxaAirbnb: Number(form.taxaAirbnb) || 0,
+        outrasTaxas: Number(form.outrasTaxas) || 0,
+        valorLiquidoRecebido: Number(form.valorLiquidoRecebido) || 0,
         checkin: form.checkin,
         checkout: form.checkout,
         noites: noites(form.checkin, form.checkout),
@@ -137,6 +143,8 @@ export default function Reservas() {
         valorBruto: Number(form.valorBruto),
         taxaLimpeza: Number(form.taxaLimpeza) || 0,
         taxaAirbnb: Number(form.taxaAirbnb) || 0,
+        outrasTaxas: Number(form.outrasTaxas) || 0,
+        valorLiquidoRecebido: Number(form.valorLiquidoRecebido) || 0,
         checkin: form.checkin,
         checkout: form.checkout,
         noites: noites(form.checkin, form.checkout),
@@ -194,11 +202,21 @@ export default function Reservas() {
                     <Input value={form.checkout} onChange={(e) => setForm({ ...form, checkout: e.target.value })} type="date" />
                   </div>
                 </div>
-                <div className="grid gap-1.5">
-                  <Label>Faxinas utilizadas</Label>
-                  <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" className="w-24" />
-                  <p className="text-xs text-muted-foreground">Gera despesa automática conforme custo configurado no imóvel.</p>
+                <div className="grid grid-cols-[88px_1fr_1fr] gap-3">
+                  <div className="grid gap-1.5">
+                    <Label>Faxinas</Label>
+                    <Input value={form.faxinas} onChange={(e) => setForm({ ...form, faxinas: e.target.value })} type="number" min="0" step="1" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Outras taxas (R$)</Label>
+                    <Input value={form.outrasTaxas} onChange={(e) => setForm({ ...form, outrasTaxas: e.target.value })} type="number" step="0.01" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>Valor líquido recebido (R$)</Label>
+                    <Input value={form.valorLiquidoRecebido} onChange={(e) => setForm({ ...form, valorLiquidoRecebido: e.target.value })} type="number" step="0.01" />
+                  </div>
                 </div>
+                <p className="text-xs text-muted-foreground -mt-2">Faxinas utilizadas gera despesa automática conforme custo configurado no imóvel.</p>
                 <div className="grid grid-cols-[2fr_1fr] gap-3 items-end">
                   <div className="grid gap-1.5">
                     <Label>Nome do hóspede</Label>

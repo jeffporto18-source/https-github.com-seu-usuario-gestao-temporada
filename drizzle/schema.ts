@@ -164,6 +164,9 @@ export const reservations = mysqlTable("reservations", {
   taxaLimpeza: decimal("taxaLimpeza", { precision: 12, scale: 2 }).notNull().default("0.00"),
   // taxa Airbnb em valor (R$), digitado livremente por reserva
   taxaAirbnb: decimal("taxaAirbnb", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  // outras taxas e valor líquido recebido, ambos digitados livremente em R$
+  outrasTaxas: decimal("outrasTaxas", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  valorLiquidoRecebido: decimal("valorLiquidoRecebido", { precision: 12, scale: 2 }).notNull().default("0.00"),
   checkin: date("checkin").notNull(),
   checkout: date("checkout").notNull(),
   noites: int("noites").notNull().default(1),

@@ -865,6 +865,8 @@ export const appRouter = router({
           valorBruto: z.number().positive(),
           taxaLimpeza: z.number().min(0),
           taxaAirbnb: z.number().min(0).default(0),
+          outrasTaxas: z.number().min(0).default(0),
+          valorLiquidoRecebido: z.number().min(0).default(0),
           checkin: z.string(),
           checkout: z.string(),
           noites: z.number().int().positive(),
@@ -883,6 +885,8 @@ export const appRouter = router({
           valorBruto: String(input.valorBruto),
           taxaLimpeza: String(input.taxaLimpeza),
           taxaAirbnb: String(input.taxaAirbnb),
+          outrasTaxas: String(input.outrasTaxas),
+          valorLiquidoRecebido: String(input.valorLiquidoRecebido),
           checkin: new Date(input.checkin),
           checkout: new Date(input.checkout),
           noites: input.noites,
@@ -927,6 +931,8 @@ export const appRouter = router({
           valorBruto: z.number().positive().optional(),
           taxaLimpeza: z.number().min(0).optional(),
           taxaAirbnb: z.number().min(0).optional(),
+          outrasTaxas: z.number().min(0).optional(),
+          valorLiquidoRecebido: z.number().min(0).optional(),
           checkin: z.string().optional(),
           checkout: z.string().optional(),
           noites: z.number().int().positive().optional(),
@@ -938,7 +944,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { id, valorBruto, taxaLimpeza, taxaAirbnb, checkin, checkout, faxinasUtilizadas, estrangeiro, ...rest } = input;
+        const { id, valorBruto, taxaLimpeza, taxaAirbnb, outrasTaxas, valorLiquidoRecebido, checkin, checkout, faxinasUtilizadas, estrangeiro, ...rest } = input;
 
         // Verificar se há NFS-e emitida — bloquear edição de campos fiscais e de período
         const notasExistentes = await db.listInvoicesByReservation(ctx.user.id, id);
@@ -954,6 +960,8 @@ export const appRouter = router({
           ...(valorBruto !== undefined ? { valorBruto: String(valorBruto) } : {}),
           ...(taxaLimpeza !== undefined ? { taxaLimpeza: String(taxaLimpeza) } : {}),
           ...(taxaAirbnb !== undefined ? { taxaAirbnb: String(taxaAirbnb) } : {}),
+          ...(outrasTaxas !== undefined ? { outrasTaxas: String(outrasTaxas) } : {}),
+          ...(valorLiquidoRecebido !== undefined ? { valorLiquidoRecebido: String(valorLiquidoRecebido) } : {}),
           ...(checkin !== undefined ? { checkin: new Date(checkin), competencia: checkin.slice(0, 7) } : {}),
           ...(checkout !== undefined ? { checkout: new Date(checkout) } : {}),
           ...(faxinasUtilizadas !== undefined ? { faxinasUtilizadas } : {}),

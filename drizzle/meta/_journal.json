@@ -197,6 +197,13 @@
       "when": 1785697167352,
       "tag": "0027_add_outras_taxas_e_valor_liquido",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1785889572234,
+      "tag": "0028_add_contract_rent_charge_id_ledger",
+      "breakpoints": true
     }
   ]
 }

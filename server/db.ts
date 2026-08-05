@@ -210,6 +210,11 @@ export async function deleteLedgerEntriesByReservation(ownerId: number, reservat
   await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.reservationId, reservationId)));
 }
 
+export async function deleteLedgerEntriesByContractRentCharge(ownerId: number, contractRentChargeId: number) {
+  const db = await requireDb();
+  await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.contractRentChargeId, contractRentChargeId)));
+}
+
 // ---------------------------------------------------------- reservations
 export async function listReservations(ownerId: number, propertyId?: number, competencia?: string) {
   const db = await requireDb();
@@ -585,7 +590,8 @@ export async function getContractRentCharge(ownerId: number, id: number) {
 
 export async function createContractRentCharge(data: InsertContractRentCharge) {
   const db = await requireDb();
-  await db.insert(contractRentCharges).values(data);
+  const res = await db.insert(contractRentCharges).values(data);
+  return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
 }
 
 export async function updateContractRentCharge(ownerId: number, id: number, data: Partial<InsertContractRentCharge>) {

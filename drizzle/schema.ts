@@ -145,6 +145,8 @@ export const ledgerEntries = mysqlTable("ledger_entries", {
   observacao: varchar("observacao", { length: 1000 }),
   // Vincula lançamento automático à reserva que o gerou (null = lançamento manual)
   reservationId: int("reservationId"),
+  // Vincula lançamento automático à parcela de aluguel (longa duração) que o gerou (null = lançamento manual)
+  contractRentChargeId: int("contractRentChargeId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

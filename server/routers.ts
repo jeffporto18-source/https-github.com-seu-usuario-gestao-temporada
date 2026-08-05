@@ -678,14 +678,30 @@ export const appRouter = router({
           const competencia = addMonthsToCompetencia(inicioCobranca, i);
           // O mês em que o contrato termina não gera cobrança (o contrato já encerrou nesse dia).
           if (competencia >= dataFim.slice(0, 7)) break;
-          await db.createContractRentCharge({
+          const dataVencimento = calcularVencimento(competencia, rest.diaVencimentoAluguel);
+          const chargeId = await db.createContractRentCharge({
             ownerId: ctx.user.id,
             contractId,
             propertyId: rest.propertyId,
             valor: String(valorAluguel),
             competencia,
-            dataVencimento: calcularVencimento(competencia, rest.diaVencimentoAluguel),
+            dataVencimento,
             status: "pendente",
+          });
+
+          // Lança a receita do aluguel automaticamente no plano de contas
+          await db.createLedgerEntry({
+            ownerId: ctx.user.id,
+            propertyId: rest.propertyId,
+            chartAccountId: null,
+            grupo: "receita",
+            categoria: "Aluguel — Longa Duração",
+            valor: String(valorAluguel),
+            dia: Number(dataVencimento.slice(8, 10)) || 1,
+            competenciaInicio: competencia,
+            qtdMeses: 1,
+            descricao: `Receita automática — Aluguel ${competencia} (${rest.nomeInquilino || "contrato"})`,
+            contractRentChargeId: chargeId,
           });
         }
 
@@ -733,6 +749,7 @@ export const appRouter = router({
         const parcelas = await db.listContractRentCharges(ctx.user.id, input.id);
         for (const p of parcelas) {
           if (p.descontoLedgerEntryId) await db.deleteLedgerEntry(ctx.user.id, p.descontoLedgerEntryId);
+          await db.deleteLedgerEntriesByContractRentCharge(ctx.user.id, p.id);
         }
         return db.deleteLongTermContract(ctx.user.id, input.id);
       }),
@@ -751,8 +768,8 @@ export const appRouter = router({
           dataVencimento: z.string(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        db.createContractRentCharge({
+      .mutation(async ({ ctx, input }) => {
+        const chargeId = await db.createContractRentCharge({
           ownerId: ctx.user.id,
           contractId: input.contractId,
           propertyId: input.propertyId,
@@ -760,8 +777,27 @@ export const appRouter = router({
           competencia: input.competencia,
           dataVencimento: input.dataVencimento,
           status: "pendente",
-        }),
-      ),
+        });
+
+        const contrato = await db.getLongTermContract(ctx.user.id, input.contractId);
+
+        // Lança a receita do aluguel automaticamente no plano de contas
+        await db.createLedgerEntry({
+          ownerId: ctx.user.id,
+          propertyId: input.propertyId,
+          chartAccountId: null,
+          grupo: "receita",
+          categoria: "Aluguel — Longa Duração",
+          valor: String(input.valor),
+          dia: Number(input.dataVencimento.slice(8, 10)) || 1,
+          competenciaInicio: input.competencia,
+          qtdMeses: 1,
+          descricao: `Receita automática — Aluguel ${input.competencia} (${contrato?.nomeInquilino || "contrato"})`,
+          contractRentChargeId: chargeId,
+        });
+
+        return { id: chargeId };
+      }),
     markReceived: protectedProcedure
       .input(
         z.object({
@@ -834,12 +870,34 @@ export const appRouter = router({
       }),
     updateCharge: protectedProcedure
       .input(z.object({ id: z.number(), valor: z.number().positive().optional(), dataVencimento: z.string().optional() }))
-      .mutation(({ ctx, input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { id, valor, dataVencimento } = input;
-        return db.updateContractRentCharge(ctx.user.id, id, {
+        await db.updateContractRentCharge(ctx.user.id, id, {
           ...(valor !== undefined ? { valor: String(valor) } : {}),
           ...(dataVencimento !== undefined ? { dataVencimento } : {}),
         });
+
+        // Reconcilia a receita automática vinculada se o valor ou o vencimento mudou
+        if (valor !== undefined || dataVencimento !== undefined) {
+          const charge = await db.getContractRentCharge(ctx.user.id, id);
+          if (charge) {
+            await db.deleteLedgerEntriesByContractRentCharge(ctx.user.id, id);
+            const contrato = await db.getLongTermContract(ctx.user.id, charge.contractId);
+            await db.createLedgerEntry({
+              ownerId: ctx.user.id,
+              propertyId: charge.propertyId,
+              chartAccountId: null,
+              grupo: "receita",
+              categoria: "Aluguel — Longa Duração",
+              valor: String(num(charge.valor)),
+              dia: Number(charge.dataVencimento.slice(8, 10)) || 1,
+              competenciaInicio: charge.competencia,
+              qtdMeses: 1,
+              descricao: `Receita automática — Aluguel ${charge.competencia} (${contrato?.nomeInquilino || "contrato"})`,
+              contractRentChargeId: id,
+            });
+          }
+        }
       }),
     deleteCharge: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -848,6 +906,7 @@ export const appRouter = router({
         if (charge?.descontoLedgerEntryId) {
           await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
         }
+        await db.deleteLedgerEntriesByContractRentCharge(ctx.user.id, input.id);
         return db.deleteContractRentCharge(ctx.user.id, input.id);
       }),
   }),
@@ -898,15 +957,31 @@ export const appRouter = router({
           estrangeiro: input.estrangeiro ? 1 : 0,
         });
 
+        // Precisamos do ID da reserva recém-criada para vincular os lançamentos automáticos
+        const allRes = await db.listReservations(ctx.user.id, input.propertyId, input.checkin.slice(0, 7));
+        const reservaCriada = allRes.find(r => r.codigo === input.codigo);
+
+        // Lança a receita da locação automaticamente no plano de contas
+        await db.createLedgerEntry({
+          ownerId: ctx.user.id,
+          propertyId: input.propertyId,
+          chartAccountId: null,
+          grupo: "receita",
+          categoria: "Aluguel — Curta Temporada",
+          valor: String(input.valorBruto + input.taxaLimpeza),
+          dia: Number(input.checkin.slice(8, 10)) || 1,
+          competenciaInicio: input.checkin.slice(0, 7),
+          qtdMeses: 1,
+          descricao: `Receita automática — Reserva ${input.codigo}`,
+          reservationId: reservaCriada?.id ?? null,
+        });
+
         // Gerar despesa automática de faxina se houver custo configurado no imóvel
         if (input.faxinasUtilizadas > 0) {
           const prop = await db.getProperty(ctx.user.id, input.propertyId);
           const custoUnit = Number(prop?.custoFaxina ?? 0);
           if (custoUnit > 0) {
             const totalFaxina = custoUnit * input.faxinasUtilizadas;
-            // Precisamos do ID da reserva recém-criada para vincular
-            const allRes = await db.listReservations(ctx.user.id, input.propertyId, input.checkin.slice(0, 7));
-            const reservaCriada = allRes.find(r => r.codigo === input.codigo);
             await db.createLedgerEntry({
               ownerId: ctx.user.id,
               propertyId: input.propertyId,
@@ -968,14 +1043,33 @@ export const appRouter = router({
           ...(estrangeiro !== undefined ? { estrangeiro: estrangeiro ? 1 : 0 } : {}),
         });
 
-        // Reconciliar despesa automática de faxina se faxinasUtilizadas mudou
-        if (faxinasUtilizadas !== undefined) {
+        // Reconciliar lançamentos automáticos (receita + despesa de faxina) se algo que os afeta mudou
+        const afetaLancamentosAutomaticos =
+          faxinasUtilizadas !== undefined || valorBruto !== undefined || taxaLimpeza !== undefined || checkin !== undefined;
+        if (afetaLancamentosAutomaticos) {
           const reserva = await db.getReservation(ctx.user.id, id);
           if (reserva) {
-            // Remover despesa antiga vinculada usando helper de delete por reservationId
+            // Remove os lançamentos antigos vinculados (receita + faxina) para recriar do zero
             await db.deleteLedgerEntriesByReservation(ctx.user.id, id);
-            // Recriar se faxinas > 0
-            if (faxinasUtilizadas > 0) {
+
+            // Recria a receita automática da locação
+            await db.createLedgerEntry({
+              ownerId: ctx.user.id,
+              propertyId: reserva.propertyId,
+              chartAccountId: null,
+              grupo: "receita",
+              categoria: "Aluguel — Curta Temporada",
+              valor: String(num(reserva.valorBruto) + num(reserva.taxaLimpeza)),
+              dia: Number(reserva.checkin.slice(8, 10)) || 1,
+              competenciaInicio: reserva.competencia,
+              qtdMeses: 1,
+              descricao: `Receita automática — Reserva ${reserva.codigo}`,
+              reservationId: id,
+            });
+
+            // Recria a despesa automática de faxina, se houver
+            const faxinasAtual = faxinasUtilizadas !== undefined ? faxinasUtilizadas : reserva.faxinasUtilizadas;
+            if (faxinasAtual > 0) {
               const prop = await db.getProperty(ctx.user.id, reserva.propertyId);
               const custoUnit = Number(prop?.custoFaxina ?? 0);
               if (custoUnit > 0) {
@@ -985,11 +1079,11 @@ export const appRouter = router({
                   chartAccountId: null,
                   grupo: "despesa_variavel",
                   categoria: "Faxineira",
-                  valor: String(custoUnit * faxinasUtilizadas),
+                  valor: String(custoUnit * faxinasAtual),
                   dia: Number(reserva.checkin.slice(8, 10)) || 1,
                   competenciaInicio: reserva.competencia,
                   qtdMeses: 1,
-                  descricao: `Faxina automática — Reserva ${reserva.codigo} (${faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
+                  descricao: `Faxina automática — Reserva ${reserva.codigo} (${faxinasAtual}x R$ ${custoUnit.toFixed(2)})`,
                   reservationId: id,
                 });
               }
@@ -1051,11 +1145,27 @@ export const appRouter = router({
             competencia: row.checkin.slice(0, 7),
           });
 
+          const allRes = await db.listReservations(ctx.user.id, input.propertyId, row.checkin.slice(0, 7));
+          const reservaCriada = allRes.find(r => r.codigo === row.codigo);
+
+          // Lança a receita da locação automaticamente no plano de contas
+          await db.createLedgerEntry({
+            ownerId: ctx.user.id,
+            propertyId: input.propertyId,
+            chartAccountId: null,
+            grupo: "receita",
+            categoria: "Aluguel — Curta Temporada",
+            valor: String(row.valorBruto + row.taxaLimpeza),
+            dia: Number(row.checkin.slice(8, 10)) || 1,
+            competenciaInicio: row.checkin.slice(0, 7),
+            qtdMeses: 1,
+            descricao: `Receita automática — Reserva ${row.codigo}`,
+            reservationId: reservaCriada?.id ?? null,
+          });
+
           // Gerar despesa de faxina automática
           if (row.faxinasUtilizadas > 0 && custoUnit > 0) {
             const totalFaxina = custoUnit * row.faxinasUtilizadas;
-            const allRes = await db.listReservations(ctx.user.id, input.propertyId, row.checkin.slice(0, 7));
-            const reservaCriada = allRes.find(r => r.codigo === row.codigo);
             await db.createLedgerEntry({
               ownerId: ctx.user.id,
               propertyId: input.propertyId,
@@ -1186,7 +1296,11 @@ export const appRouter = router({
         const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
         const despesasFixasRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "despesa_fixa");
         const despesasVariaveisRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "despesa_variavel");
-        const receitasManuaisRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "receita");
+        // Exclui lançamentos automáticos de receita (já contabilizados abaixo a partir das próprias
+        // reservas/parcelas) para não contar a mesma receita duas vezes.
+        const receitasManuaisRaw = (await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "receita")).filter(
+          (e) => !e.reservationId && !e.contractRentChargeId,
+        );
         const aportesRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "aporte_capital");
 
         let receitaBruta = 0;

@@ -61,6 +61,22 @@ export function addMesesCompetencia(competencia: string, meses: number): string 
   return `${ny}-${String(nm).padStart(2, "0")}`;
 }
 
+/** Ano atual "AAAA". */
+export function anoAtual(): string {
+  return String(new Date().getFullYear());
+}
+
+/** Lista dos últimos N anos (incluindo o atual), formato "AAAA". */
+export function anos(qtd = 6): { value: string; label: string }[] {
+  const atual = new Date().getFullYear();
+  const out: { value: string; label: string }[] = [];
+  for (let i = 0; i < qtd; i++) {
+    const ano = String(atual - i);
+    out.push({ value: ano, label: ano });
+  }
+  return out;
+}
+
 export function formatCpfCnpj(v: string): string {
   const d = v.replace(/\D/g, "");
   if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");

@@ -1329,9 +1329,9 @@ export const appRouter = router({
 
   // --------------------------------------------------------- relatórios
   relatorios: router({
-    // Relatório mensal para a contabilidade: quem alugou cada unidade (curta e longa
+    // Relatório mensal para a EFD Contribuições: quem alugou cada unidade (curta e longa
     // duração), com nome, CPF/passaporte e valor, mais o total recebido no mês.
-    contabilidade: protectedProcedure
+    efdContribuicoes: protectedProcedure
       .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -1384,6 +1384,78 @@ export const appRouter = router({
 
         return {
           competencia: input.competencia,
+          itens,
+          total: round2(itens.reduce((s, i) => s + i.valor, 0)),
+        };
+      }),
+
+    // DIMOB: relatório anual de quem alugou cada unidade (curta e longa duração) durante
+    // o ano inteiro, com nome, CPF/passaporte e valor total recebido no ano por locação.
+    dimob: protectedProcedure
+      .input(z.object({ ano: z.string().regex(/^\d{4}$/) }))
+      .query(async ({ ctx, input }) => {
+        const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+        const props = await db.listProperties(ctx.user.id);
+        const propMap = new Map(props.map((p) => [p.id, p]));
+
+        const reservas = await db.listReservationsByYear(ctx.user.id, input.ano);
+        const parcelas = await db.listContractRentChargesByYear(ctx.user.id, input.ano);
+
+        type Item = {
+          nome: string;
+          documento: string;
+          tipoDocumento: string;
+          tipoLocacao: "curta" | "longa";
+          imovel: string;
+          valor: number;
+        };
+        const porChave = new Map<string, Item>();
+
+        for (const r of reservas) {
+          const prop = propMap.get(r.propertyId);
+          const documento = (r.estrangeiro ? r.passaporteHospede : r.cpfHospede) || "-";
+          const chave = `curta|${documento}|${r.nomeHospede}|${r.propertyId}`;
+          const valor = round2(num(r.valorBruto) + num(r.taxaLimpeza));
+          const existente = porChave.get(chave);
+          if (existente) existente.valor = round2(existente.valor + valor);
+          else
+            porChave.set(chave, {
+              nome: r.nomeHospede || "(não informado)",
+              documento,
+              tipoDocumento: r.estrangeiro ? "Passaporte" : "CPF",
+              tipoLocacao: "curta",
+              imovel: prop?.apelido || "-",
+              valor,
+            });
+        }
+
+        const contractIds = Array.from(new Set(parcelas.map((p) => p.contractId)));
+        const contratosArr = await Promise.all(contractIds.map((id) => db.getLongTermContract(ctx.user.id, id)));
+        const contratoMap = new Map(contratosArr.filter((c): c is NonNullable<typeof c> => !!c).map((c) => [c.id, c]));
+
+        for (const p of parcelas) {
+          const contrato = contratoMap.get(p.contractId);
+          const prop = propMap.get(p.propertyId);
+          const documento = contrato?.cpfCnpjInquilino || "-";
+          const chave = `longa|${documento}|${contrato?.nomeInquilino}|${p.propertyId}`;
+          const valor = round2(num(p.valor));
+          const existente = porChave.get(chave);
+          if (existente) existente.valor = round2(existente.valor + valor);
+          else
+            porChave.set(chave, {
+              nome: contrato?.nomeInquilino || "(não informado)",
+              documento,
+              tipoDocumento: "CPF/CNPJ",
+              tipoLocacao: "longa",
+              imovel: prop?.apelido || "-",
+              valor,
+            });
+        }
+
+        const itens = Array.from(porChave.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+
+        return {
+          ano: input.ano,
           itens,
           total: round2(itens.reduce((s, i) => s + i.valor, 0)),
         };

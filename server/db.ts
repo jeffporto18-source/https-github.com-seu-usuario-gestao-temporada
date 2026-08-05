@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -217,6 +217,16 @@ export async function listReservations(ownerId: number, propertyId?: number, com
   if (propertyId) conds.push(eq(reservations.propertyId, propertyId));
   if (competencia) conds.push(eq(reservations.competencia, competencia));
   return db.select().from(reservations).where(and(...conds)).orderBy(desc(reservations.checkin));
+}
+
+/** Reservas de TODOS os imóveis num ano (competência "AAAA-%"), usado no relatório DIMOB. */
+export async function listReservationsByYear(ownerId: number, ano: string) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(reservations)
+    .where(and(eq(reservations.ownerId, ownerId), like(reservations.competencia, `${ano}-%`)))
+    .orderBy(desc(reservations.checkin));
 }
 
 export async function getReservation(ownerId: number, id: number) {
@@ -556,6 +566,15 @@ export async function listContractRentChargesByCompetencia(ownerId: number, comp
     .select()
     .from(contractRentCharges)
     .where(and(eq(contractRentCharges.ownerId, ownerId), eq(contractRentCharges.competencia, competencia)));
+}
+
+/** Parcelas de aluguel de longa duração de TODOS os imóveis num ano, usado no relatório DIMOB. */
+export async function listContractRentChargesByYear(ownerId: number, ano: string) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(contractRentCharges)
+    .where(and(eq(contractRentCharges.ownerId, ownerId), like(contractRentCharges.competencia, `${ano}-%`)));
 }
 
 export async function getContractRentCharge(ownerId: number, id: number) {

@@ -32,6 +32,10 @@ interface CsvRow {
   checkout: string;
   noites: number;
   faxinasUtilizadas: number;
+  // Nome do anúncio (imóvel) no Airbnb — usado só no cliente para mapear cada
+  // linha ao imóvel correto quando o CSV mistura várias unidades. A mutation
+  // ignora esse campo (zod remove chaves desconhecidas por padrão).
+  anuncio?: string;
 }
 
 // Campos lógicos reconhecidos no CSV — mais amplos que CsvRow porque alguns
@@ -39,7 +43,7 @@ interface CsvRow {
 type LogicalField =
   | "codigo" | "valorBruto" | "taxaLimpeza" | "taxaAirbnb" | "outrasTaxas"
   | "valorLiquidoRecebido" | "nomeHospede" | "checkin" | "checkout" | "noites"
-  | "tipoDoc" | "documento" | "pago" | "ganhosBrutos";
+  | "tipoDoc" | "documento" | "pago" | "ganhosBrutos" | "anuncio";
 
 // Mapeamento flexível de colunas do CSV do Airbnb
 const COLUMN_MAP: Record<string, LogicalField> = {
@@ -128,6 +132,11 @@ const COLUMN_MAP: Record<string, LogicalField> = {
   "diarias": "noites",
   "darias": "noites",
   "# of nights": "noites",
+  // Anúncio (imóvel) — usado para mapear cada linha ao imóvel correto quando
+  // o CSV mistura reservas de várias unidades.
+  "anúncio": "anuncio",
+  "anuncio": "anuncio",
+  "listing": "anuncio",
 };
 
 function round2(n: number): number {
@@ -137,9 +146,10 @@ function round2(n: number): number {
 /**
  * Interpreta datas "D/M/AAAA" ou "M/D/AAAA" de forma ambígua: quando um dos dois
  * números é > 12 ele só pode ser o dia; quando os dois são ≤ 12 (ambíguo de
- * verdade), assume-se dia/mês (formato BR). O check-out real é recalculado a
- * partir do check-in + noites (ver mapRow), então essa função só precisa acertar
- * o check-in.
+ * verdade), assume-se mês/dia (formato dos exports do Airbnb — as colunas "Data
+ * de início"/"Data de término" vêm em inglês/EUA mesmo em relatórios com o resto
+ * das colunas em português). O check-out real é recalculado a partir do check-in
+ * + noites (ver mapRow), então essa função só precisa acertar o check-in.
  */
 function parseAmbiguousDate(val: string): { y: number; m: number; d: number } | null {
   const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -150,7 +160,7 @@ function parseAmbiguousDate(val: string): { y: number; m: number; d: number } | 
   let day: number, month: number;
   if (a > 12) { day = a; month = b; }
   else if (b > 12) { day = b; month = a; }
-  else { day = a; month = b; } // ambíguo: assume dia/mês
+  else { day = b; month = a; } // ambíguo: assume mês/dia (M/D)
   return { y: year, m: month, d: day };
 }
 
@@ -235,26 +245,22 @@ function extractFields(headers: string[], row: string[]): Partial<Record<Logical
 }
 
 /**
- * Interpreta uma linha já extraída em uma reserva. `lastPago` é o valor da coluna
- * "Pago" mais recente visto (pode vir de uma linha-resumo em branco acima desta,
- * como no modelo com "Código de Confirmação" + "Pago" + "Ganhos brutos").
- * Retorna a reserva (ou null se a linha não tem dados suficientes — ex.: linha-resumo
- * em branco) e o "Pago" desta linha, se houver, para atualizar o valor corrente.
+ * Interpreta uma linha já extraída em uma reserva, sem aplicar ainda o valor de
+ * "Pago" do repasse (isso é feito depois, no agrupamento por repasse — ver
+ * handleFile). Retorna null se a linha não tem dados suficientes (ex.: linha de
+ * repasse, sem código/data/valor de reserva).
  */
-function mapRow(
+function buildBaseRow(
   fields: Partial<Record<LogicalField, string>>,
   defaultFaxinas: number,
-  lastPago: number | null,
-): { row: CsvRow | null; pagoDesta: number | null } {
-  const pagoDesta = fields.pago ? parseCurrency(fields.pago) : null;
-
+): { row: CsvRow; ganhosBrutos: number | null } | null {
   const codigo = fields.codigo;
   const valorBruto = fields.valorBruto ? parseCurrency(fields.valorBruto) : 0;
-  if (!codigo || !valorBruto) return { row: null, pagoDesta };
+  if (!codigo || !valorBruto) return null;
 
   const noites = fields.noites ? parseInt(fields.noites, 10) || 0 : 0;
   const checkin = fields.checkin ? parseDate(fields.checkin) : null;
-  if (!checkin) return { row: null, pagoDesta };
+  if (!checkin) return null;
   const noitesFinal = noites > 0 ? noites : Math.max(
     1,
     fields.checkout
@@ -268,16 +274,9 @@ function mapRow(
 
   const taxaAirbnb = fields.taxaAirbnb ? parseCurrency(fields.taxaAirbnb) : 0;
   const taxaLimpeza = fields.taxaLimpeza ? parseCurrency(fields.taxaLimpeza) : 0;
-
-  let outrasTaxas = fields.outrasTaxas ? parseCurrency(fields.outrasTaxas) : 0;
-  let valorLiquidoRecebido = fields.valorLiquidoRecebido ? parseCurrency(fields.valorLiquidoRecebido) : 0;
-  if (fields.ganhosBrutos && lastPago !== null) {
-    const ganhosBrutos = parseCurrency(fields.ganhosBrutos);
-    valorLiquidoRecebido = lastPago;
-    // Outras taxas = Ganhos brutos − Pago − Taxa de serviço (pode dar negativo;
-    // isso é esperado quando o relatório não reconcilia por completo).
-    outrasTaxas = round2(ganhosBrutos - lastPago - taxaAirbnb);
-  }
+  const outrasTaxas = fields.outrasTaxas ? parseCurrency(fields.outrasTaxas) : 0;
+  const valorLiquidoRecebido = fields.valorLiquidoRecebido ? parseCurrency(fields.valorLiquidoRecebido) : 0;
+  const ganhosBrutos = fields.ganhosBrutos ? parseCurrency(fields.ganhosBrutos) : null;
 
   const tipoDoc = (fields.tipoDoc || "").trim().toLowerCase();
   const documento = (fields.documento || "").trim() || undefined;
@@ -301,38 +300,46 @@ function mapRow(
       checkout,
       noites: noitesFinal,
       faxinasUtilizadas: defaultFaxinas,
+      anuncio: fields.anuncio || undefined,
     },
-    pagoDesta,
+    ganhosBrutos,
   };
 }
+
+const SEM_ANUNCIO = "(sem anúncio informado)";
 
 export default function ImportarCsv() {
   const utils = trpc.useUtils();
   const { data: todosImoveis } = trpc.properties.list.useQuery();
   const imoveis = useMemo(() => (todosImoveis ?? []).filter((p) => p.tipoLocacao === "curta"), [todosImoveis]);
-  const [propertyId, setPropertyId] = useState<string>("");
   const [faxinasPadrao, setFaxinasPadrao] = useState("1");
   const [parsedRows, setParsedRows] = useState<CsvRow[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [fileName, setFileName] = useState("");
+  // Mapeia cada "Anúncio" encontrado no CSV (ou a chave SEM_ANUNCIO, quando o
+  // arquivo não tem essa coluna) para o id do imóvel correspondente no sistema.
+  const [propertyMap, setPropertyMap] = useState<Record<string, string>>({});
+  const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const importMut = trpc.reservations.importCsv.useMutation({
-    onSuccess: (res) => {
-      utils.reservations.list.invalidate();
-      utils.ledgerEntries.list.invalidate();
-      toast.success(`${res.importadas} reserva(s) importada(s) com sucesso!`);
-      setParsedRows([]);
-      setFileName("");
-      setErrors([]);
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const importMut = trpc.reservations.importCsv.useMutation();
+
+  const anuncios = useMemo(() => {
+    const porAnuncio = new Map<string, number>();
+    for (const r of parsedRows) {
+      const chave = r.anuncio || SEM_ANUNCIO;
+      porAnuncio.set(chave, (porAnuncio.get(chave) ?? 0) + 1);
+    }
+    return Array.from(porAnuncio.entries()).map(([anuncio, qtd]) => ({ anuncio, qtd })).sort((a, b) => a.anuncio.localeCompare(b.anuncio));
+  }, [parsedRows]);
+
+  const todosMapeados = anuncios.length > 0 && anuncios.every((a) => propertyMap[a.anuncio]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
+    setPropertyMap({});
 
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -346,20 +353,49 @@ export default function ImportarCsv() {
       }
 
       const errs: string[] = [];
-      const mapped: CsvRow[] = [];
       const defaultFax = Number(faxinasPadrao) || 1;
-      let lastPago: number | null = null;
+
+      // 1ª passada: agrupa as reservas pelo repasse ("Pago") que as cobre — um
+      // repasse pode cobrir uma única reserva (modelo com linha-resumo em branco)
+      // ou várias de uma vez (quando o Airbnb paga mais de uma reserva junta).
+      type Grupo = { pago: number | null; itens: { row: CsvRow; ganhosBrutos: number | null }[] };
+      const grupos: Grupo[] = [{ pago: null, itens: [] }];
 
       for (let i = 0; i < rows.length; i++) {
         const fields = extractFields(headers, rows[i]);
-        const { row, pagoDesta } = mapRow(fields, defaultFax, lastPago);
-        if (pagoDesta !== null) lastPago = pagoDesta;
-        if (row) {
-          mapped.push(row);
+        const pagoDesta = fields.pago ? parseCurrency(fields.pago) : null;
+        if (pagoDesta !== null) {
+          grupos.push({ pago: pagoDesta, itens: [] });
+          continue;
+        }
+        const base = buildBaseRow(fields, defaultFax);
+        if (base) {
+          grupos[grupos.length - 1].itens.push(base);
         } else if (fields.codigo) {
           // Só reporta erro se a linha tinha um código de reserva (ou seja,
           // não é uma linha-resumo/em branco do relatório).
           errs.push(`Linha ${i + 2}: dados insuficientes (código, datas ou valor ausentes)`);
+        }
+      }
+
+      // 2ª passada: só aplica o "Pago" do repasse quando ele cobre exatamente
+      // uma reserva (correspondência exata). Quando cobre várias, não dá para
+      // saber a fatia de cada uma com segurança, então usa uma estimativa sem
+      // "outras taxas" (ganhos brutos − taxa de serviço).
+      const mapped: CsvRow[] = [];
+      for (const g of grupos) {
+        for (const item of g.itens) {
+          const row = { ...item.row };
+          if (item.ganhosBrutos !== null) {
+            if (g.pago !== null && g.itens.length === 1) {
+              row.valorLiquidoRecebido = g.pago;
+              row.outrasTaxas = round2(item.ganhosBrutos - g.pago - row.taxaAirbnb);
+            } else {
+              row.valorLiquidoRecebido = round2(item.ganhosBrutos - row.taxaAirbnb);
+              row.outrasTaxas = 0;
+            }
+          }
+          mapped.push(row);
         }
       }
 
@@ -369,16 +405,42 @@ export default function ImportarCsv() {
     reader.readAsText(file, "utf-8");
   };
 
-  const submit = () => {
-    if (!propertyId) {
-      toast.error("Selecione o imóvel de destino.");
-      return;
-    }
+  const submit = async () => {
     if (!parsedRows.length) {
       toast.error("Nenhuma reserva válida para importar.");
       return;
     }
-    importMut.mutate({ propertyId: Number(propertyId), rows: parsedRows });
+    if (!todosMapeados) {
+      toast.error("Selecione o imóvel correspondente a cada anúncio antes de importar.");
+      return;
+    }
+
+    const grupos = new Map<string, CsvRow[]>();
+    for (const r of parsedRows) {
+      const propertyId = propertyMap[r.anuncio || SEM_ANUNCIO];
+      if (!grupos.has(propertyId)) grupos.set(propertyId, []);
+      grupos.get(propertyId)!.push(r);
+    }
+
+    setImporting(true);
+    try {
+      let total = 0;
+      for (const [propertyId, rows] of Array.from(grupos.entries())) {
+        const res = await importMut.mutateAsync({ propertyId: Number(propertyId), rows });
+        total += res.importadas;
+      }
+      utils.reservations.list.invalidate();
+      utils.ledgerEntries.list.invalidate();
+      toast.success(`${total} reserva(s) importada(s) com sucesso!`);
+      setParsedRows([]);
+      setFileName("");
+      setErrors([]);
+      setPropertyMap({});
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao importar.");
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -389,19 +451,6 @@ export default function ImportarCsv() {
       />
 
       <Card className="p-6 space-y-5">
-        {/* Seleção de imóvel */}
-        <div className="grid gap-1.5 max-w-sm">
-          <Label>Imóvel de destino</Label>
-          <Select value={propertyId} onValueChange={setPropertyId}>
-            <SelectTrigger><SelectValue placeholder="Selecione o imóvel" /></SelectTrigger>
-            <SelectContent>
-              {imoveis?.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>{p.apelido}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         {/* Faxinas padrão */}
         <div className="grid gap-1.5 max-w-xs">
           <Label>Faxinas por reserva (padrão)</Label>
@@ -442,12 +491,49 @@ export default function ImportarCsv() {
             onChange={handleFile}
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Aceita o CSV exportado do Airbnb (Earnings → Paid → Get report) ou o modelo com colunas em português
-            (Código de Confirmação, Data de início/término, darias, Hóspede, tipo doc, Documento, Valor, Pago,
-            Taxa de serviço, Taxa de limpeza, Ganhos brutos). Separador: vírgula ou ponto-e-vírgula.
-            "tipo doc" = CPF ou Passaporte direciona o documento e marca hóspede estrangeiro automaticamente.
+            Aceita o relatório de pagamentos do Airbnb (colunas Tipo, Código de Confirmação, Data de início/término,
+            Noites, Hóspede, Anúncio, Valor, Pago, Taxa de serviço, Taxa de limpeza, Ganhos brutos) — pode conter
+            reservas de vários imóveis misturadas, identificadas pela coluna "Anúncio". As colunas Informações,
+            Código de referência, Moeda, Imposto repassado pelo Airbnb e Ganhos do ano são ignoradas. CPF/passaporte
+            e se o hóspede é estrangeiro não vêm no relatório — preencha manualmente depois, editando a reserva.
+            Separador: vírgula ou ponto-e-vírgula.
           </p>
         </div>
+
+        {/* Mapeamento de imóveis por anúncio */}
+        {anuncios.length > 0 && (
+          <div className="grid gap-2">
+            <Label>Mapear cada anúncio para o imóvel correspondente</Label>
+            <div className="rounded-lg border border-border divide-y divide-border">
+              {anuncios.map(({ anuncio, qtd }) => (
+                <div key={anuncio} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{anuncio}</p>
+                    <p className="text-xs text-muted-foreground">{qtd} reserva(s)</p>
+                  </div>
+                  <Select
+                    value={propertyMap[anuncio] ?? ""}
+                    onValueChange={(v) => setPropertyMap((prev) => ({ ...prev, [anuncio]: v }))}
+                  >
+                    <SelectTrigger className="w-[220px] bg-background shrink-0">
+                      <SelectValue placeholder="Selecione o imóvel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {imoveis?.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>{p.apelido}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+            {!todosMapeados && (
+              <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5" /> Selecione o imóvel de cada anúncio antes de importar.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Erros */}
         {errors.length > 0 && (
@@ -477,6 +563,7 @@ export default function ImportarCsv() {
                 <thead className="bg-secondary sticky top-0">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">Código</th>
+                    <th className="px-3 py-2 text-left font-medium">Anúncio</th>
                     <th className="px-3 py-2 text-left font-medium">Hóspede</th>
                     <th className="px-3 py-2 text-left font-medium">Documento</th>
                     <th className="px-3 py-2 text-left font-medium">Check-in</th>
@@ -494,6 +581,7 @@ export default function ImportarCsv() {
                   {parsedRows.slice(0, 50).map((r, i) => (
                     <tr key={i} className="border-t border-border">
                       <td className="px-3 py-2 font-mono text-xs">{r.codigo}</td>
+                      <td className="px-3 py-2">{r.anuncio || "—"}</td>
                       <td className="px-3 py-2">{r.nomeHospede || "—"}</td>
                       <td className="px-3 py-2">
                         {r.estrangeiro
@@ -526,10 +614,10 @@ export default function ImportarCsv() {
         <div className="flex justify-end pt-2">
           <Button
             onClick={submit}
-            disabled={!parsedRows.length || !propertyId || importMut.isPending}
+            disabled={!parsedRows.length || !todosMapeados || importing}
             className="active:scale-[0.97] transition-transform"
           >
-            {importMut.isPending ? (
+            {importing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Upload className="mr-2 h-4 w-4" />

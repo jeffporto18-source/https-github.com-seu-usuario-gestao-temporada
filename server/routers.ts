@@ -937,7 +937,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        await db.createReservation({
+        const novaReservaId = await db.createReservation({
           ownerId: ctx.user.id,
           propertyId: input.propertyId,
           codigo: input.codigo,
@@ -957,10 +957,6 @@ export const appRouter = router({
           estrangeiro: input.estrangeiro ? 1 : 0,
         });
 
-        // Precisamos do ID da reserva recém-criada para vincular os lançamentos automáticos
-        const allRes = await db.listReservations(ctx.user.id, input.propertyId, input.checkin.slice(0, 7));
-        const reservaCriada = allRes.find(r => r.codigo === input.codigo);
-
         // Lança a receita da locação automaticamente no plano de contas
         await db.createLedgerEntry({
           ownerId: ctx.user.id,
@@ -973,7 +969,7 @@ export const appRouter = router({
           competenciaInicio: input.checkin.slice(0, 7),
           qtdMeses: 1,
           descricao: `Receita automática — Reserva ${input.codigo}`,
-          reservationId: reservaCriada?.id ?? null,
+          reservationId: novaReservaId,
         });
 
         // Gerar despesa automática de faxina se houver custo configurado no imóvel
@@ -993,7 +989,7 @@ export const appRouter = router({
               competenciaInicio: input.checkin.slice(0, 7),
               qtdMeses: 1,
               descricao: `Faxina automática — Reserva ${input.codigo} (${input.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
-              reservationId: reservaCriada?.id ?? null,
+              reservationId: novaReservaId,
             });
           }
         }
@@ -1125,7 +1121,7 @@ export const appRouter = router({
         let importadas = 0;
 
         for (const row of input.rows) {
-          await db.createReservation({
+          const novaReservaId = await db.createReservation({
             ownerId: ctx.user.id,
             propertyId: input.propertyId,
             codigo: row.codigo,
@@ -1145,9 +1141,6 @@ export const appRouter = router({
             competencia: row.checkin.slice(0, 7),
           });
 
-          const allRes = await db.listReservations(ctx.user.id, input.propertyId, row.checkin.slice(0, 7));
-          const reservaCriada = allRes.find(r => r.codigo === row.codigo);
-
           // Lança a receita da locação automaticamente no plano de contas
           await db.createLedgerEntry({
             ownerId: ctx.user.id,
@@ -1160,7 +1153,7 @@ export const appRouter = router({
             competenciaInicio: row.checkin.slice(0, 7),
             qtdMeses: 1,
             descricao: `Receita automática — Reserva ${row.codigo}`,
-            reservationId: reservaCriada?.id ?? null,
+            reservationId: novaReservaId,
           });
 
           // Gerar despesa de faxina automática
@@ -1177,7 +1170,7 @@ export const appRouter = router({
               competenciaInicio: row.checkin.slice(0, 7),
               qtdMeses: 1,
               descricao: `Faxina automática — Reserva ${row.codigo} (${row.faxinasUtilizadas}x R$ ${custoUnit.toFixed(2)})`,
-              reservationId: reservaCriada?.id ?? null,
+              reservationId: novaReservaId,
             });
           }
           importadas++;

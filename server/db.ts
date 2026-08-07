@@ -243,7 +243,7 @@ export async function getReservation(ownerId: number, id: number) {
 export async function createReservation(data: InsertReservation) {
   const db = await requireDb();
   const res = await db.insert(reservations).values(data);
-  return (res as unknown as { insertId: number }).insertId;
+  return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
 }
 
 export async function updateReservation(ownerId: number, id: number, data: Partial<InsertReservation>) {

@@ -164,4 +164,104 @@ export function registerUploadRoutes(app: Express) {
       res.status(500).json({ error: error.message || "Erro ao fazer upload do documento da garantia." });
     }
   });
+
+  /**
+   * POST /api/upload/contrato-locacao
+   * Body: multipart/form-data with field "file" (PDF ou imagem) e "contractId" (number)
+   * Contrato de locação assinado do contrato de longa duração.
+   * Returns: { contratoLocacaoUrl, contratoLocacaoKey }
+   */
+  app.post("/api/upload/contrato-locacao", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Não autenticado." });
+        return;
+      }
+
+      const contractId = Number(req.body.contractId);
+      if (!contractId) {
+        res.status(400).json({ error: "contractId é obrigatório." });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "Arquivo não enviado." });
+        return;
+      }
+
+      const ext = EXT_BY_MIME[file.mimetype];
+      if (!ext) {
+        res.status(400).json({ error: "Apenas PDF ou imagens (JPG, PNG, WEBP) são aceitos." });
+        return;
+      }
+
+      const contrato = await db.getLongTermContract(user.id, contractId);
+      if (!contrato) {
+        res.status(404).json({ error: "Contrato não encontrado." });
+        return;
+      }
+
+      const relKey = `documentos/contrato_locacao_${contractId}.${ext}`;
+      const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
+
+      await db.updateLongTermContract(user.id, contractId, { contratoLocacaoUrl: url, contratoLocacaoKey: key });
+
+      res.json({ contratoLocacaoUrl: url, contratoLocacaoKey: key });
+    } catch (error: any) {
+      console.error("[Upload] Contract lease document upload failed:", error);
+      res.status(500).json({ error: error.message || "Erro ao fazer upload do contrato de locação." });
+    }
+  });
+
+  /**
+   * POST /api/upload/apolice-seguro
+   * Body: multipart/form-data with field "file" (PDF ou imagem) e "contractId" (number)
+   * Apólice de seguro (fiança/incêndio) do contrato de longa duração.
+   * Returns: { apoliceSeguroUrl, apoliceSeguroKey }
+   */
+  app.post("/api/upload/apolice-seguro", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Não autenticado." });
+        return;
+      }
+
+      const contractId = Number(req.body.contractId);
+      if (!contractId) {
+        res.status(400).json({ error: "contractId é obrigatório." });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "Arquivo não enviado." });
+        return;
+      }
+
+      const ext = EXT_BY_MIME[file.mimetype];
+      if (!ext) {
+        res.status(400).json({ error: "Apenas PDF ou imagens (JPG, PNG, WEBP) são aceitos." });
+        return;
+      }
+
+      const contrato = await db.getLongTermContract(user.id, contractId);
+      if (!contrato) {
+        res.status(404).json({ error: "Contrato não encontrado." });
+        return;
+      }
+
+      const relKey = `documentos/apolice_seguro_${contractId}.${ext}`;
+      const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
+
+      await db.updateLongTermContract(user.id, contractId, { apoliceSeguroUrl: url, apoliceSeguroKey: key });
+
+      res.json({ apoliceSeguroUrl: url, apoliceSeguroKey: key });
+    } catch (error: any) {
+      console.error("[Upload] Insurance policy upload failed:", error);
+      res.status(500).json({ error: error.message || "Erro ao fazer upload da apólice de seguro." });
+    }
+  });
 }

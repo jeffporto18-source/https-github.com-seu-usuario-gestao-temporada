@@ -333,6 +333,11 @@ export const longTermContracts = mysqlTable("long_term_contracts", {
   tipoGarantia: varchar("tipoGarantia", { length: 100 }),
   garantiaDocumentoUrl: varchar("garantiaDocumentoUrl", { length: 500 }),
   garantiaDocumentoKey: varchar("garantiaDocumentoKey", { length: 255 }),
+  // Contrato de locação assinado (PDF) e apólice de seguro (PDF ou imagem), por contrato
+  contratoLocacaoUrl: varchar("contratoLocacaoUrl", { length: 500 }),
+  contratoLocacaoKey: varchar("contratoLocacaoKey", { length: 255 }),
+  apoliceSeguroUrl: varchar("apoliceSeguroUrl", { length: 500 }),
+  apoliceSeguroKey: varchar("apoliceSeguroKey", { length: 255 }),
   // Comissão da administradora sobre este contrato (%) e como o imóvel é administrado
   comissaoPct: decimal("comissaoPct", { precision: 5, scale: 2 }).notNull().default("0.00"),
   tipoAdministracao: mysqlEnum("contractTipoAdministracao", ["propria", "administradora", "gestor_curta_temporada"]).notNull().default("propria"),

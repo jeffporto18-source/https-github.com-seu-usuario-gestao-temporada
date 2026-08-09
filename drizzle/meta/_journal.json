@@ -204,6 +204,13 @@
       "when": 1785889572234,
       "tag": "0028_add_contract_rent_charge_id_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1786315684897,
+      "tag": "0029_add_contrato_locacao_apolice_seguro",
+      "breakpoints": true
     }
   ]
 }

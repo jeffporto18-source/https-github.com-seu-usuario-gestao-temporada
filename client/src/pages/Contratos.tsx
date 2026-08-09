@@ -71,6 +71,59 @@ function addMonthsToDate(data: string, months: number): string {
   return `${ny}-${String(nm).padStart(2, "0")}-${String(diaAjustado).padStart(2, "0")}`;
 }
 
+/** Linha de anexo de documento (label + botão anexar/substituir + link ver), reutilizada nos 3 slots do contrato. */
+function DocumentoUploadRow({
+  label,
+  url,
+  uploading,
+  accept,
+  onUpload,
+}: {
+  label: string;
+  url?: string | null;
+  uploading: boolean;
+  accept: string;
+  onUpload: (file: File) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onUpload(file);
+          e.target.value = "";
+        }}
+      />
+      <span className="text-xs text-muted-foreground w-36 shrink-0">{label}</span>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs text-muted-foreground hover:text-primary"
+        disabled={uploading}
+        onClick={() => inputRef.current?.click()}
+      >
+        {uploading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+        {url ? "Substituir" : "Anexar"}
+      </Button>
+      {url && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs text-muted-foreground hover:text-primary"
+          onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
+        >
+          <ExternalLink className="mr-1 h-3.5 w-3.5" /> Ver
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export default function Contratos() {
   const utils = trpc.useUtils();
   const { data: imoveis } = trpc.properties.list.useQuery();
@@ -79,10 +132,13 @@ export default function Contratos() {
   const [form, setForm] = useState<ContractForm>(emptyForm);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
   const [recebendo, setRecebendo] = useState<{ id: number; valor: number } | null>(null);
+  // Contrato recém-criado nesta sessão do diálogo: enquanto definido, o diálogo fica aberto
+  // mostrando os 3 anexos em vez do formulário (o upload só é possível com o id já existente).
+  const [savedContractId, setSavedContractId] = useState<number | null>(null);
+  const [savedDocs, setSavedDocs] = useState<{ contratoLocacaoUrl?: string; garantiaDocumentoUrl?: string; apoliceSeguroUrl?: string }>({});
+  const [uploadingLocacao, setUploadingLocacao] = useState(false);
   const [uploadingGarantia, setUploadingGarantia] = useState(false);
-  const garantiaFileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingContrato, setUploadingContrato] = useState(false);
-  const contratoFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingApolice, setUploadingApolice] = useState(false);
 
   const longTermProps = useMemo(() => (imoveis ?? []).filter((p) => p.tipoLocacao === "longa"), [imoveis]);
 
@@ -103,10 +159,15 @@ export default function Contratos() {
 
   const { data: garantias } = trpc.guaranteeTypes.list.useQuery();
 
-  const reset = () => setForm(emptyForm);
+  const reset = () => { setForm(emptyForm); setSavedContractId(null); setSavedDocs({}); };
 
   const create = trpc.longTermContracts.create.useMutation({
-    onSuccess: () => { utils.longTermContracts.list.invalidate(); setOpen(false); reset(); toast.success("Contrato cadastrado."); },
+    onSuccess: (res) => {
+      utils.longTermContracts.list.invalidate();
+      setSavedContractId(res.id);
+      setSelectedContractId(res.id);
+      toast.success("Contrato cadastrado. Anexe os documentos abaixo.");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -158,52 +219,48 @@ export default function Contratos() {
 
   const nomeImovel = (id: number) => imoveis?.find((p) => p.id === id)?.apelido ?? "—";
   const selectedContract = contratos?.find((c) => c.id === selectedContractId);
-  const imovelDoContrato = selectedContract ? imoveis?.find((p) => p.id === selectedContract.propertyId) : undefined;
 
-  const handleContratoUpload = async (propertyId: number, file: File) => {
-    if (file.type !== "application/pdf") {
-      toast.error("Apenas arquivos PDF são aceitos.");
-      return;
-    }
-    setUploadingContrato(true);
+  /** Upload genérico de documento do contrato, usado pelos 3 slots (locação, garantia, apólice). */
+  const uploadContractDoc = async (
+    endpoint: string,
+    contractId: number,
+    file: File,
+    setUploading: (v: boolean) => void,
+    successMsg: string,
+    onDone?: (data: any) => void,
+  ) => {
+    setUploading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("propertyId", String(propertyId));
-      const resp = await fetch("/api/upload/contrato", { method: "POST", body: formData });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: "Erro ao enviar." }));
-        throw new Error(err.error);
-      }
-      toast.success("Contrato enviado com sucesso.");
-      utils.properties.list.invalidate();
-    } catch (e: any) {
-      toast.error(e.message || "Erro ao enviar contrato.");
-    } finally {
-      setUploadingContrato(false);
-    }
-  };
-
-  const handleGarantiaDocUpload = async (file: File) => {
-    if (!selectedContractId) return;
-    setUploadingGarantia(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("contractId", String(selectedContractId));
-      const resp = await fetch("/api/upload/garantia-contrato", { method: "POST", body: formData });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: "Erro ao enviar." }));
-        throw new Error(err.error);
-      }
-      toast.success("Documento da garantia enviado.");
+      formData.append("contractId", String(contractId));
+      const resp = await fetch(endpoint, { method: "POST", body: formData });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || "Erro ao enviar.");
+      toast.success(successMsg);
       utils.longTermContracts.list.invalidate();
+      onDone?.(data);
     } catch (e: any) {
       toast.error(e.message || "Erro ao enviar documento.");
     } finally {
-      setUploadingGarantia(false);
+      setUploading(false);
     }
   };
+
+  const handleContratoLocacaoUpload = (contractId: number, file: File) =>
+    uploadContractDoc("/api/upload/contrato-locacao", contractId, file, setUploadingLocacao, "Contrato de locação enviado.", (data) =>
+      setSavedDocs((prev) => ({ ...prev, contratoLocacaoUrl: data.contratoLocacaoUrl })),
+    );
+
+  const handleGarantiaDocUpload = (contractId: number, file: File) =>
+    uploadContractDoc("/api/upload/garantia-contrato", contractId, file, setUploadingGarantia, "Documento da garantia enviado.", (data) =>
+      setSavedDocs((prev) => ({ ...prev, garantiaDocumentoUrl: data.garantiaDocumentoUrl })),
+    );
+
+  const handleApoliceSeguroUpload = (contractId: number, file: File) =>
+    uploadContractDoc("/api/upload/apolice-seguro", contractId, file, setUploadingApolice, "Apólice de seguro enviada.", (data) =>
+      setSavedDocs((prev) => ({ ...prev, apoliceSeguroUrl: data.apoliceSeguroUrl })),
+    );
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -220,8 +277,38 @@ export default function Contratos() {
               </DialogTrigger>
               <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle className="font-serif">Novo contrato</DialogTitle>
+                  <DialogTitle className="font-serif">{savedContractId ? "Anexar documentos" : "Novo contrato"}</DialogTitle>
                 </DialogHeader>
+                {savedContractId ? (
+                  <div className="grid gap-3 py-2">
+                    <p className="text-sm text-muted-foreground">
+                      Contrato cadastrado. Anexe os documentos abaixo (opcional — pode fazer isso depois também).
+                    </p>
+                    <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
+                      <DocumentoUploadRow
+                        label="Contrato de locação"
+                        url={savedDocs.contratoLocacaoUrl}
+                        uploading={uploadingLocacao}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleContratoLocacaoUpload(savedContractId, file)}
+                      />
+                      <DocumentoUploadRow
+                        label="Documentos da fiança"
+                        url={savedDocs.garantiaDocumentoUrl}
+                        uploading={uploadingGarantia}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleGarantiaDocUpload(savedContractId, file)}
+                      />
+                      <DocumentoUploadRow
+                        label="Apólice de seguro"
+                        url={savedDocs.apoliceSeguroUrl}
+                        uploading={uploadingApolice}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleApoliceSeguroUpload(savedContractId, file)}
+                      />
+                    </div>
+                  </div>
+                ) : (
                 <div className="grid gap-4 py-2">
                   <div className="grid gap-1.5">
                     <Label>Imóvel</Label>
@@ -358,9 +445,16 @@ export default function Contratos() {
                     </div>
                   </div>
                 </div>
+                )}
                 <DialogFooter>
-                  <Button variant="outline" className="bg-background" onClick={() => setOpen(false)}>Cancelar</Button>
-                  <Button onClick={submit} disabled={create.isPending}>Salvar</Button>
+                  {savedContractId ? (
+                    <Button onClick={() => setOpen(false)}>Concluir</Button>
+                  ) : (
+                    <>
+                      <Button variant="outline" className="bg-background" onClick={() => setOpen(false)}>Cancelar</Button>
+                      <Button onClick={submit} disabled={create.isPending}>Salvar</Button>
+                    </>
+                  )}
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -433,74 +527,29 @@ export default function Contratos() {
                     {TIPO_ADMIN_LABELS_CONTRATO[selectedContract.tipoAdministracao as ContractForm["tipoAdministracao"]]}
                     {Number(selectedContract.comissaoPct) > 0 ? ` · Comissão ${Number(selectedContract.comissaoPct)}%` : ""}
                   </p>
-                  <div className="flex items-center gap-2 flex-wrap mt-2">
-                    <input
-                      ref={contratoFileInputRef}
-                      type="file"
-                      accept="application/pdf"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file && imovelDoContrato) handleContratoUpload(imovelDoContrato.id, file);
-                        e.target.value = "";
-                      }}
+                  <div className="mt-3 space-y-2">
+                    <DocumentoUploadRow
+                      label="Contrato de locação"
+                      url={selectedContract.contratoLocacaoUrl}
+                      uploading={uploadingLocacao}
+                      accept="application/pdf,image/jpeg,image/png,image/webp"
+                      onUpload={(file) => handleContratoLocacaoUpload(selectedContract.id, file)}
                     />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs text-muted-foreground hover:text-primary"
-                      disabled={uploadingContrato || !imovelDoContrato}
-                      onClick={() => contratoFileInputRef.current?.click()}
-                    >
-                      {uploadingContrato ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
-                      {imovelDoContrato?.contratoUrl ? "Substituir contrato" : "Anexar contrato"}
-                    </Button>
-                    {imovelDoContrato?.contratoUrl && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs text-muted-foreground hover:text-primary"
-                        onClick={() => window.open(imovelDoContrato.contratoUrl!, "_blank", "noopener,noreferrer")}
-                      >
-                        <ExternalLink className="mr-1 h-3.5 w-3.5" /> Ver contrato
-                      </Button>
-                    )}
+                    <DocumentoUploadRow
+                      label="Documentos da fiança"
+                      url={selectedContract.garantiaDocumentoUrl}
+                      uploading={uploadingGarantia}
+                      accept="application/pdf,image/jpeg,image/png,image/webp"
+                      onUpload={(file) => handleGarantiaDocUpload(selectedContract.id, file)}
+                    />
+                    <DocumentoUploadRow
+                      label="Apólice de seguro"
+                      url={selectedContract.apoliceSeguroUrl}
+                      uploading={uploadingApolice}
+                      accept="application/pdf,image/jpeg,image/png,image/webp"
+                      onUpload={(file) => handleApoliceSeguroUpload(selectedContract.id, file)}
+                    />
                   </div>
-                  {selectedContract.tipoGarantia && (
-                    <div className="flex items-center gap-2 flex-wrap mt-2">
-                      <input
-                        ref={garantiaFileInputRef}
-                        type="file"
-                        accept="application/pdf,image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleGarantiaDocUpload(file);
-                          e.target.value = "";
-                        }}
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs text-muted-foreground hover:text-primary"
-                        disabled={uploadingGarantia}
-                        onClick={() => garantiaFileInputRef.current?.click()}
-                      >
-                        {uploadingGarantia ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
-                        {selectedContract.garantiaDocumentoUrl ? "Substituir documento da garantia" : "Anexar documento da garantia"}
-                      </Button>
-                      {selectedContract.garantiaDocumentoUrl && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-muted-foreground hover:text-primary"
-                          onClick={() => window.open(selectedContract.garantiaDocumentoUrl!, "_blank", "noopener,noreferrer")}
-                        >
-                          <ExternalLink className="mr-1 h-3.5 w-3.5" /> Ver documento
-                        </Button>
-                      )}
-                    </div>
-                  )}
                 </div>
                 <div className="divide-y divide-border max-h-[480px] overflow-y-auto">
                   {!charges?.length ? (

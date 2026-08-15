@@ -354,7 +354,7 @@ export default function Contratos() {
     );
 
   const handleRenovacaoContratoUpload = (contractId: number, file: File) =>
-    uploadContractDoc("/api/upload/renovacao-contrato", contractId, file, setUploadingRenovacao, "Novo contrato enviado.", (data) =>
+    uploadContractDoc("/api/upload/renovacao-contrato", contractId, file, setUploadingRenovacao, "Contrato renovado enviado.", (data) =>
       setSavedDocs((prev) => ({ ...prev, renovacaoContratoUrl: data.renovacaoContratoUrl })),
     );
 
@@ -406,7 +406,7 @@ export default function Contratos() {
                       />
                       {form.renovacaoAutomatica === "novo_contrato" && (
                         <DocumentoUploadRow
-                          label="Novo contrato (renovação)"
+                          label="Contrato renovado"
                           url={savedDocs.renovacaoContratoUrl}
                           uploading={uploadingRenovacao}
                           accept="application/pdf,image/jpeg,image/png,image/webp"
@@ -586,7 +586,7 @@ export default function Contratos() {
                     <div className="rounded-lg border border-border bg-secondary/50 p-3">
                       {editingId !== null ? (
                         <DocumentoUploadRow
-                          label="Novo contrato assinado"
+                          label="Contrato renovado"
                           url={savedDocs.renovacaoContratoUrl}
                           uploading={uploadingRenovacao}
                           accept="application/pdf,image/jpeg,image/png,image/webp"
@@ -779,7 +779,7 @@ export default function Contratos() {
                     />
                     {selectedContract.renovacaoAutomatica === "novo_contrato" && (
                       <DocumentoUploadRow
-                        label="Novo contrato (renovação)"
+                        label="Contrato renovado"
                         url={selectedContract.renovacaoContratoUrl}
                         uploading={uploadingRenovacao}
                         accept="application/pdf,image/jpeg,image/png,image/webp"

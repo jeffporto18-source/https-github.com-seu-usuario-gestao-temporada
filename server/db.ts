@@ -153,6 +153,22 @@ export async function updateProperty(ownerId: number, id: number, data: Partial<
 
 export async function deleteProperty(ownerId: number, id: number) {
   const db = await requireDb();
+  const [reserva] = await db
+    .select({ id: reservations.id })
+    .from(reservations)
+    .where(and(eq(reservations.ownerId, ownerId), eq(reservations.propertyId, id)))
+    .limit(1);
+  if (reserva) {
+    throw new Error("Este imóvel possui reservas de curta temporada vinculadas e não pode ser excluído.");
+  }
+  const [contrato] = await db
+    .select({ id: longTermContracts.id })
+    .from(longTermContracts)
+    .where(and(eq(longTermContracts.ownerId, ownerId), eq(longTermContracts.propertyId, id)))
+    .limit(1);
+  if (contrato) {
+    throw new Error("Este imóvel possui contrato de longa duração vinculado e não pode ser excluído.");
+  }
   await db.delete(properties).where(and(eq(properties.ownerId, ownerId), eq(properties.id, id)));
 }
 

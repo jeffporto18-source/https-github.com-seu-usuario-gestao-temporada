@@ -45,6 +45,10 @@ interface ContractForm {
   tipoGarantia: string;
   comissaoPct: string;
   tipoAdministracao: "propria" | "administradora" | "gestor_curta_temporada";
+  renovacaoAutomatica: "" | "novo_contrato" | "prazo_indeterminado";
+  prazoIndeterminadoDataInicio: string;
+  prazoIndeterminadoValor: string;
+  prazoIndeterminadoPrazoReajusteMeses: string;
 }
 
 const emptyForm: ContractForm = {
@@ -52,6 +56,12 @@ const emptyForm: ContractForm = {
   indiceCorrecao: "IGPM", carenciaInicio: "", carenciaFim: "", valorAluguel: "",
   nomeInquilino: "", cpfCnpjInquilino: "", contatoInquilino: "", telefoneInquilino: "", celularInquilino: "",
   whatsappInquilino: "", emailInquilino: "", tipoGarantia: "", comissaoPct: "0", tipoAdministracao: "propria",
+  renovacaoAutomatica: "", prazoIndeterminadoDataInicio: "", prazoIndeterminadoValor: "", prazoIndeterminadoPrazoReajusteMeses: "",
+};
+
+const RENOVACAO_LABELS: Record<Exclude<ContractForm["renovacaoAutomatica"], "">, string> = {
+  novo_contrato: "Novo contrato",
+  prazo_indeterminado: "Prazo indeterminado",
 };
 
 const TIPO_ADMIN_LABELS_CONTRATO: Record<ContractForm["tipoAdministracao"], string> = {
@@ -138,10 +148,11 @@ export default function Contratos() {
   // Contrato existente sendo editado (abre o mesmo diálogo pré-preenchido, com o formulário
   // e os anexos visíveis juntos, já que o id já existe desde o início).
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [savedDocs, setSavedDocs] = useState<{ contratoLocacaoUrl?: string; garantiaDocumentoUrl?: string; apoliceSeguroUrl?: string }>({});
+  const [savedDocs, setSavedDocs] = useState<{ contratoLocacaoUrl?: string; garantiaDocumentoUrl?: string; apoliceSeguroUrl?: string; renovacaoContratoUrl?: string }>({});
   const [uploadingLocacao, setUploadingLocacao] = useState(false);
   const [uploadingGarantia, setUploadingGarantia] = useState(false);
   const [uploadingApolice, setUploadingApolice] = useState(false);
+  const [uploadingRenovacao, setUploadingRenovacao] = useState(false);
 
   const longTermProps = useMemo(() => (imoveis ?? []).filter((p) => p.tipoLocacao === "longa"), [imoveis]);
 
@@ -224,6 +235,10 @@ export default function Contratos() {
         tipoGarantia: form.tipoGarantia || undefined,
         comissaoPct: form.tipoAdministracao === "propria" ? 0 : Number(form.comissaoPct) || 0,
         tipoAdministracao: form.tipoAdministracao,
+        renovacaoAutomatica: form.renovacaoAutomatica || null,
+        prazoIndeterminadoDataInicio: form.renovacaoAutomatica === "prazo_indeterminado" ? (form.prazoIndeterminadoDataInicio || null) : null,
+        prazoIndeterminadoValor: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoValor ? Number(form.prazoIndeterminadoValor) : null,
+        prazoIndeterminadoPrazoReajusteMeses: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoPrazoReajusteMeses ? Number(form.prazoIndeterminadoPrazoReajusteMeses) : null,
       });
       return;
     }
@@ -250,6 +265,10 @@ export default function Contratos() {
       tipoGarantia: form.tipoGarantia || undefined,
       comissaoPct: form.tipoAdministracao === "propria" ? 0 : Number(form.comissaoPct) || 0,
       tipoAdministracao: form.tipoAdministracao,
+      renovacaoAutomatica: form.renovacaoAutomatica || undefined,
+      prazoIndeterminadoDataInicio: form.renovacaoAutomatica === "prazo_indeterminado" ? (form.prazoIndeterminadoDataInicio || undefined) : undefined,
+      prazoIndeterminadoValor: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoValor ? Number(form.prazoIndeterminadoValor) : undefined,
+      prazoIndeterminadoPrazoReajusteMeses: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoPrazoReajusteMeses ? Number(form.prazoIndeterminadoPrazoReajusteMeses) : undefined,
     });
   };
 
@@ -278,11 +297,16 @@ export default function Contratos() {
       tipoGarantia: c.tipoGarantia || "",
       comissaoPct: String(c.comissaoPct ?? "0"),
       tipoAdministracao: c.tipoAdministracao as ContractForm["tipoAdministracao"],
+      renovacaoAutomatica: (c.renovacaoAutomatica as ContractForm["renovacaoAutomatica"]) || "",
+      prazoIndeterminadoDataInicio: c.prazoIndeterminadoDataInicio || "",
+      prazoIndeterminadoValor: c.prazoIndeterminadoValor ? String(c.prazoIndeterminadoValor) : "",
+      prazoIndeterminadoPrazoReajusteMeses: c.prazoIndeterminadoPrazoReajusteMeses ? String(c.prazoIndeterminadoPrazoReajusteMeses) : "",
     });
     setSavedDocs({
       contratoLocacaoUrl: c.contratoLocacaoUrl || undefined,
       garantiaDocumentoUrl: c.garantiaDocumentoUrl || undefined,
       apoliceSeguroUrl: c.apoliceSeguroUrl || undefined,
+      renovacaoContratoUrl: c.renovacaoContratoUrl || undefined,
     });
     setOpen(true);
   };
@@ -327,6 +351,11 @@ export default function Contratos() {
   const handleApoliceSeguroUpload = (contractId: number, file: File) =>
     uploadContractDoc("/api/upload/apolice-seguro", contractId, file, setUploadingApolice, "Apólice de seguro enviada.", (data) =>
       setSavedDocs((prev) => ({ ...prev, apoliceSeguroUrl: data.apoliceSeguroUrl })),
+    );
+
+  const handleRenovacaoContratoUpload = (contractId: number, file: File) =>
+    uploadContractDoc("/api/upload/renovacao-contrato", contractId, file, setUploadingRenovacao, "Novo contrato enviado.", (data) =>
+      setSavedDocs((prev) => ({ ...prev, renovacaoContratoUrl: data.renovacaoContratoUrl })),
     );
 
   return (
@@ -375,6 +404,15 @@ export default function Contratos() {
                         accept="application/pdf,image/jpeg,image/png,image/webp"
                         onUpload={(file) => handleApoliceSeguroUpload(savedContractId, file)}
                       />
+                      {form.renovacaoAutomatica === "novo_contrato" && (
+                        <DocumentoUploadRow
+                          label="Novo contrato (renovação)"
+                          url={savedDocs.renovacaoContratoUrl}
+                          uploading={uploadingRenovacao}
+                          accept="application/pdf,image/jpeg,image/png,image/webp"
+                          onUpload={(file) => handleRenovacaoContratoUpload(savedContractId, file)}
+                        />
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -529,6 +567,71 @@ export default function Contratos() {
                     </div>
                   </div>
 
+                  <div className="grid gap-1.5">
+                    <Label>Renovação automática</Label>
+                    <Select
+                      value={form.renovacaoAutomatica}
+                      onValueChange={(v) => setForm({ ...form, renovacaoAutomatica: v as ContractForm["renovacaoAutomatica"] })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(RENOVACAO_LABELS) as Exclude<ContractForm["renovacaoAutomatica"], "">[]).map((k) => (
+                          <SelectItem key={k} value={k}>{RENOVACAO_LABELS[k]}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {form.renovacaoAutomatica === "novo_contrato" && (
+                    <div className="rounded-lg border border-border bg-secondary/50 p-3">
+                      {editingId !== null ? (
+                        <DocumentoUploadRow
+                          label="Novo contrato assinado"
+                          url={savedDocs.renovacaoContratoUrl}
+                          uploading={uploadingRenovacao}
+                          accept="application/pdf,image/jpeg,image/png,image/webp"
+                          onUpload={(file) => handleRenovacaoContratoUpload(editingId, file)}
+                        />
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Você poderá anexar o novo contrato assinado depois de salvar.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {form.renovacaoAutomatica === "prazo_indeterminado" && (
+                    <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
+                      <p className="text-xs font-medium text-muted-foreground">Prazo indeterminado</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-1.5">
+                          <Label className="text-xs">Data de início</Label>
+                          <Input
+                            value={form.prazoIndeterminadoDataInicio}
+                            onChange={(e) => setForm({ ...form, prazoIndeterminadoDataInicio: e.target.value })}
+                            type="date"
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label className="text-xs">Valor do aluguel (R$)</Label>
+                          <Input
+                            value={form.prazoIndeterminadoValor}
+                            onChange={(e) => setForm({ ...form, prazoIndeterminadoValor: e.target.value })}
+                            type="number"
+                            step="0.01"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label className="text-xs">Prazo de reajuste (meses)</Label>
+                        <Input
+                          value={form.prazoIndeterminadoPrazoReajusteMeses}
+                          onChange={(e) => setForm({ ...form, prazoIndeterminadoPrazoReajusteMeses: e.target.value })}
+                          type="number"
+                          min="1"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {editingId !== null && (
                     <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
                       <p className="text-xs font-medium text-muted-foreground">Documentos do contrato</p>
@@ -674,7 +777,24 @@ export default function Contratos() {
                       accept="application/pdf,image/jpeg,image/png,image/webp"
                       onUpload={(file) => handleApoliceSeguroUpload(selectedContract.id, file)}
                     />
+                    {selectedContract.renovacaoAutomatica === "novo_contrato" && (
+                      <DocumentoUploadRow
+                        label="Novo contrato (renovação)"
+                        url={selectedContract.renovacaoContratoUrl}
+                        uploading={uploadingRenovacao}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleRenovacaoContratoUpload(selectedContract.id, file)}
+                      />
+                    )}
                   </div>
+                  {selectedContract.renovacaoAutomatica === "prazo_indeterminado" && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Renovação: prazo indeterminado
+                      {selectedContract.prazoIndeterminadoDataInicio ? ` desde ${formatDate(selectedContract.prazoIndeterminadoDataInicio)}` : ""}
+                      {selectedContract.prazoIndeterminadoValor ? ` · ${brl(selectedContract.prazoIndeterminadoValor)}` : ""}
+                      {selectedContract.prazoIndeterminadoPrazoReajusteMeses ? ` · reajuste a cada ${selectedContract.prazoIndeterminadoPrazoReajusteMeses} meses` : ""}
+                    </p>
+                  )}
                 </div>
                 <div className="divide-y divide-border max-h-[480px] overflow-y-auto">
                   {!charges?.length ? (

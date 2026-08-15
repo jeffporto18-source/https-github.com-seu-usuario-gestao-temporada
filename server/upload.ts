@@ -264,4 +264,54 @@ export function registerUploadRoutes(app: Express) {
       res.status(500).json({ error: error.message || "Erro ao fazer upload da apólice de seguro." });
     }
   });
+
+  /**
+   * POST /api/upload/renovacao-contrato
+   * Body: multipart/form-data with field "file" (PDF ou imagem) e "contractId" (number)
+   * Novo contrato assinado na renovação automática (quando renovacaoAutomatica = "novo_contrato").
+   * Returns: { renovacaoContratoUrl, renovacaoContratoKey }
+   */
+  app.post("/api/upload/renovacao-contrato", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user) {
+        res.status(401).json({ error: "Não autenticado." });
+        return;
+      }
+
+      const contractId = Number(req.body.contractId);
+      if (!contractId) {
+        res.status(400).json({ error: "contractId é obrigatório." });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "Arquivo não enviado." });
+        return;
+      }
+
+      const ext = EXT_BY_MIME[file.mimetype];
+      if (!ext) {
+        res.status(400).json({ error: "Apenas PDF ou imagens (JPG, PNG, WEBP) são aceitos." });
+        return;
+      }
+
+      const contrato = await db.getLongTermContract(user.id, contractId);
+      if (!contrato) {
+        res.status(404).json({ error: "Contrato não encontrado." });
+        return;
+      }
+
+      const relKey = `documentos/renovacao_contrato_${contractId}.${ext}`;
+      const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
+
+      await db.updateLongTermContract(user.id, contractId, { renovacaoContratoUrl: url, renovacaoContratoKey: key });
+
+      res.json({ renovacaoContratoUrl: url, renovacaoContratoKey: key });
+    } catch (error: any) {
+      console.error("[Upload] Contract renewal document upload failed:", error);
+      res.status(500).json({ error: error.message || "Erro ao fazer upload do novo contrato." });
+    }
+  });
 }

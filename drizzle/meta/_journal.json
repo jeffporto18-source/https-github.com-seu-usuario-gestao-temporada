@@ -211,6 +211,13 @@
       "when": 1786315684897,
       "tag": "0029_add_contrato_locacao_apolice_seguro",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1786817954465,
+      "tag": "0030_add_renovacao_automatica",
+      "breakpoints": true
     }
   ]
 }

@@ -637,6 +637,10 @@ export const appRouter = router({
           comissaoPct: z.number().min(0).max(100).default(0),
           tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).default("propria"),
           valorAluguel: z.number().positive(),
+          renovacaoAutomatica: z.enum(["novo_contrato", "prazo_indeterminado"]).optional(),
+          prazoIndeterminadoDataInicio: z.string().optional(),
+          prazoIndeterminadoValor: z.number().positive().optional(),
+          prazoIndeterminadoPrazoReajusteMeses: z.number().int().positive().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -667,6 +671,10 @@ export const appRouter = router({
           tipoGarantia: rest.tipoGarantia || null,
           comissaoPct: String(rest.comissaoPct),
           tipoAdministracao: rest.tipoAdministracao,
+          renovacaoAutomatica: rest.renovacaoAutomatica || null,
+          prazoIndeterminadoDataInicio: rest.prazoIndeterminadoDataInicio || null,
+          prazoIndeterminadoValor: rest.prazoIndeterminadoValor !== undefined ? String(rest.prazoIndeterminadoValor) : null,
+          prazoIndeterminadoPrazoReajusteMeses: rest.prazoIndeterminadoPrazoReajusteMeses ?? null,
         });
 
         // Primeiro aluguel devido: mês seguinte ao fim da carência (aluguel é pago postecipado).
@@ -729,13 +737,18 @@ export const appRouter = router({
           tipoGarantia: z.string().optional(),
           comissaoPct: z.number().min(0).max(100).optional(),
           tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).optional(),
+          renovacaoAutomatica: z.enum(["novo_contrato", "prazo_indeterminado"]).nullable().optional(),
+          prazoIndeterminadoDataInicio: z.string().nullable().optional(),
+          prazoIndeterminadoValor: z.number().positive().nullable().optional(),
+          prazoIndeterminadoPrazoReajusteMeses: z.number().int().positive().nullable().optional(),
         }),
       )
       .mutation(({ ctx, input }) => {
-        const { id, dataInicio, dataFim, dataReajuste, carenciaInicio, carenciaFim, comissaoPct, ...rest } = input;
+        const { id, dataInicio, dataFim, dataReajuste, carenciaInicio, carenciaFim, comissaoPct, prazoIndeterminadoValor, ...rest } = input;
         return db.updateLongTermContract(ctx.user.id, id, {
           ...rest,
           ...(comissaoPct !== undefined ? { comissaoPct: String(comissaoPct) } : {}),
+          ...(prazoIndeterminadoValor !== undefined ? { prazoIndeterminadoValor: prazoIndeterminadoValor !== null ? String(prazoIndeterminadoValor) : null } : {}),
           ...(dataInicio !== undefined ? { dataInicio } : {}),
           ...(dataFim !== undefined ? { dataFim } : {}),
           ...(dataReajuste !== undefined ? { dataReajuste } : {}),

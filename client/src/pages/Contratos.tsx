@@ -209,7 +209,10 @@ export default function Contratos() {
 
   const prazoMesesNum = Number(form.prazoMeses) || 12;
   const dataFimCalculada = form.dataInicio ? addMonthsToDate(form.dataInicio, prazoMesesNum) : "";
-  const dataReajusteCalculada = form.dataInicio ? addMonthsToDate(form.dataInicio, 12) : "";
+  // Reajuste ocorre a cada 12 meses; contratos mais longos têm mais de uma data (ex.: 30 meses → reajuste aos 12 e aos 24 meses).
+  const datasReajusteCalculadas = form.dataInicio
+    ? Array.from({ length: Math.floor(prazoMesesNum / 12) }, (_, i) => addMonthsToDate(form.dataInicio, 12 * (i + 1)))
+    : [];
 
   const submit = () => {
     if (!form.dataInicio) { toast.error("Informe a data de início do contrato."); return; }
@@ -510,8 +513,14 @@ export default function Contratos() {
                       <Input value={form.dataInicio ? formatDate(dataFimCalculada) : ""} disabled placeholder="Calculado a partir do início + prazo" />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label>Próximo reajuste</Label>
-                      <Input value={form.dataInicio ? formatDate(dataReajusteCalculada) : ""} disabled placeholder="Calculado (início + 12 meses)" />
+                      <Label>{datasReajusteCalculadas.length > 1 ? "Datas de reajuste" : "Próximo reajuste"}</Label>
+                      {datasReajusteCalculadas.length > 0 ? (
+                        <p className="text-sm px-3 py-2 rounded-md border border-input bg-secondary/30 text-muted-foreground">
+                          {datasReajusteCalculadas.map(formatDate).join(" · ")}
+                        </p>
+                      ) : (
+                        <Input value="" disabled placeholder="Calculado (a cada 12 meses)" />
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

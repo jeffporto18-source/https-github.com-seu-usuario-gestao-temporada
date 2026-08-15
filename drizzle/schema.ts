@@ -90,6 +90,8 @@ export const properties = mysqlTable("properties", {
   financiado: mysqlEnum("financiado", ["sim", "nao"]).notNull().default("nao"),
   tipoFinanciamento: mysqlEnum("tipoFinanciamento", ["financiamento", "consorcio"]),
   valorParcela: decimal("valorParcela", { precision: 10, scale: 2 }),
+  // Sócio responsável pelo imóvel (imóveis de longa duração)
+  socioId: int("socioId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

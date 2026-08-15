@@ -46,11 +46,13 @@ interface PropertyForm {
   financiado: "sim" | "nao";
   tipoFinanciamento: "financiamento" | "consorcio";
   valorParcela: string;
+  socioId: string;
 }
 
 const emptyForm: PropertyForm = {
   clientId: "", apelido: "", endereco: "", comissao: "20", custoFaxina: "150", tipoLocacao: "curta",
   tipoAdministracao: "propria", imobiliariaId: "", gestorId: "", financiado: "nao", tipoFinanciamento: "financiamento", valorParcela: "",
+  socioId: "",
 };
 
 const TIPO_ADMIN_LABELS: Record<PropertyForm["tipoAdministracao"], string> = {
@@ -67,6 +69,7 @@ export default function Imoveis() {
   const { data: clientes } = trpc.clients.list.useQuery(undefined, { enabled: !isHolding });
   const { data: imobiliarias } = trpc.imobiliarias.list.useQuery();
   const { data: gestores } = trpc.curtaManagers.list.useQuery();
+  const { data: socios } = trpc.socios.list.useQuery();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState<PropertyForm>(emptyForm);
@@ -105,6 +108,7 @@ export default function Imoveis() {
       financiado: (p.financiado as "sim" | "nao") || "nao",
       tipoFinanciamento: (p.tipoFinanciamento as PropertyForm["tipoFinanciamento"]) || "financiamento",
       valorParcela: p.valorParcela ? String(Number(p.valorParcela)) : "",
+      socioId: p.socioId ? String(p.socioId) : "",
     });
     setOpen(true);
   };
@@ -124,6 +128,7 @@ export default function Imoveis() {
       financiado: form.financiado,
       tipoFinanciamento: form.financiado === "sim" ? form.tipoFinanciamento : undefined,
       valorParcela: form.financiado === "sim" && form.valorParcela ? Number(form.valorParcela) : undefined,
+      socioId: form.tipoLocacao === "longa" && form.socioId ? Number(form.socioId) : undefined,
     };
     if (editId) {
       update.mutate({
@@ -247,6 +252,19 @@ export default function Imoveis() {
                     </SelectContent>
                   </Select>
                 </div>
+                {form.tipoLocacao === "longa" && (
+                  <div className="grid gap-1.5">
+                    <Label>Sócio</Label>
+                    <Select value={form.socioId} onValueChange={(v) => setForm({ ...form, socioId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Selecione o sócio" /></SelectTrigger>
+                      <SelectContent>
+                        {socios?.map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>{s.nome}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="grid gap-1.5">
                   <Label>Endereço</Label>
                   <Input value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />

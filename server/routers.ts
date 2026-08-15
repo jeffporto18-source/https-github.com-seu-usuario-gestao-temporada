@@ -267,6 +267,7 @@ export const appRouter = router({
           financiado: z.enum(["sim", "nao"]).default("nao"),
           tipoFinanciamento: z.enum(["financiamento", "consorcio"]).optional(),
           valorParcela: z.number().min(0).optional(),
+          socioId: z.number().optional(),
         }),
       )
       .mutation(({ ctx, input }) =>
@@ -284,6 +285,7 @@ export const appRouter = router({
           financiado: input.financiado,
           tipoFinanciamento: input.tipoFinanciamento ?? null,
           valorParcela: input.valorParcela !== undefined ? String(input.valorParcela) : null,
+          socioId: input.socioId ?? null,
         }),
       ),
     update: protectedProcedure
@@ -302,6 +304,7 @@ export const appRouter = router({
           financiado: z.enum(["sim", "nao"]).optional(),
           tipoFinanciamento: z.enum(["financiamento", "consorcio"]).nullable().optional(),
           valorParcela: z.number().min(0).nullable().optional(),
+          socioId: z.number().nullable().optional(),
         }),
       )
       .mutation(({ ctx, input }) => {

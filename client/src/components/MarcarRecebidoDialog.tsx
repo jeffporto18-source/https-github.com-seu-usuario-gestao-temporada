@@ -30,11 +30,12 @@ interface MarcarRecebidoDialogProps {
   onSuccess: () => void;
 }
 
-/** Diálogo compartilhado para marcar um aluguel como recebido, com multa/juros e desconto (vira despesa). */
+/** Diálogo para marcar um aluguel como recebido, com multa/juros e desconto (vira despesa). */
 export default function MarcarRecebidoDialog({ chargeId, valorOriginal, onOpenChange, onSuccess }: MarcarRecebidoDialogProps) {
   const { data: contasFixas } = trpc.chartAccounts.list.useQuery({ grupo: "despesa_fixa" });
   const { data: contasVariaveis } = trpc.chartAccounts.list.useQuery({ grupo: "despesa_variavel" });
   const [dataRecebimento, setDataRecebimento] = useState("");
+  const [temMultaJuros, setTemMultaJuros] = useState<"nao" | "sim">("nao");
   const [multaJuros, setMultaJuros] = useState("0");
   const [desconto, setDesconto] = useState("0");
   const [chartAccountId, setChartAccountId] = useState("");
@@ -43,6 +44,7 @@ export default function MarcarRecebidoDialog({ chargeId, valorOriginal, onOpenCh
   useEffect(() => {
     if (chargeId !== null) {
       setDataRecebimento(new Date().toISOString().slice(0, 10));
+      setTemMultaJuros("nao");
       setMultaJuros("0");
       setDesconto("0");
       setChartAccountId("");
@@ -102,15 +104,31 @@ export default function MarcarRecebidoDialog({ chargeId, valorOriginal, onOpenCh
             <Label>Data de recebimento</Label>
             <Input value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} type="date" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-1.5">
+            <Label>Teve multa ou juros por atraso?</Label>
+            <Select
+              value={temMultaJuros}
+              onValueChange={(v) => {
+                setTemMultaJuros(v as "nao" | "sim");
+                if (v === "nao") setMultaJuros("0");
+              }}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nao">Não</SelectItem>
+                <SelectItem value="sim">Sim</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {temMultaJuros === "sim" && (
             <div className="grid gap-1.5">
-              <Label>Multa/juros por atraso (R$)</Label>
-              <Input value={multaJuros} onChange={(e) => setMultaJuros(e.target.value)} type="number" step="0.01" min="0" />
+              <Label>Valor da multa/juros (R$)</Label>
+              <Input autoFocus value={multaJuros} onChange={(e) => setMultaJuros(e.target.value)} type="number" step="0.01" min="0" />
             </div>
-            <div className="grid gap-1.5">
-              <Label>Desconto concedido (R$)</Label>
-              <Input value={desconto} onChange={(e) => setDesconto(e.target.value)} type="number" step="0.01" min="0" />
-            </div>
+          )}
+          <div className="grid gap-1.5">
+            <Label>Desconto concedido (R$)</Label>
+            <Input value={desconto} onChange={(e) => setDesconto(e.target.value)} type="number" step="0.01" min="0" />
           </div>
 
           {valorDesconto > 0 && (

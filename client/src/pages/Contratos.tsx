@@ -24,7 +24,6 @@ import { toast } from "sonner";
 import { Plus, Trash2, FileText, CheckCircle2, Circle, User, Upload, ExternalLink, Loader2, Pencil } from "lucide-react";
 import { brl, formatDate } from "@/lib/format";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
-import MarcarRecebidoDialog from "@/components/MarcarRecebidoDialog";
 
 interface ContractForm {
   propertyId: string;
@@ -146,7 +145,6 @@ export default function Contratos() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ContractForm>(emptyForm);
   const [selectedContractId, setSelectedContractId] = useState<number | null>(null);
-  const [recebendo, setRecebendo] = useState<{ id: number; valor: number } | null>(null);
   // Contrato recém-criado nesta sessão do diálogo: enquanto definido, o diálogo fica aberto
   // mostrando os 3 anexos em vez do formulário (o upload só é possível com o id já existente).
   const [savedContractId, setSavedContractId] = useState<number | null>(null);
@@ -201,11 +199,6 @@ export default function Contratos() {
 
   const del = trpc.longTermContracts.delete.useMutation({
     onSuccess: () => { utils.longTermContracts.list.invalidate(); setSelectedContractId(null); toast.success("Contrato removido."); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const markPending = trpc.longTermContracts.markPending.useMutation({
-    onSuccess: () => { utils.longTermContracts.charges.invalidate(); toast.success("Parcela marcada como pendente."); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -814,13 +807,11 @@ export default function Contratos() {
                       return (
                         <div key={ch.id} className="group flex items-center justify-between px-4 py-2 hover:bg-secondary/40 transition-colors">
                           <div className="flex items-center gap-2.5">
-                            <button onClick={() => (ch.status === "recebido" ? markPending.mutate({ id: ch.id }) : setRecebendo({ id: ch.id, valor: Number(ch.valor) }))}>
-                              {ch.status === "recebido" ? (
-                                <CheckCircle2 className="h-4 w-4 text-primary" />
-                              ) : (
-                                <Circle className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </button>
+                            {ch.status === "recebido" ? (
+                              <CheckCircle2 className="h-4 w-4 text-primary" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground" />
+                            )}
                             <div>
                               <p className="text-sm font-medium">{ch.competencia}</p>
                               <p className="text-xs text-muted-foreground">
@@ -852,13 +843,6 @@ export default function Contratos() {
           </div>
         </div>
       )}
-
-      <MarcarRecebidoDialog
-        chargeId={recebendo?.id ?? null}
-        valorOriginal={recebendo?.valor ?? 0}
-        onOpenChange={(o) => !o && setRecebendo(null)}
-        onSuccess={() => { utils.longTermContracts.charges.invalidate(); setRecebendo(null); }}
-      />
     </div>
   );
 }

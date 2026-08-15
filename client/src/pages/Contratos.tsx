@@ -88,12 +88,15 @@ function DocumentoUploadRow({
   uploading,
   accept,
   onUpload,
+  allowReplace = true,
 }: {
   label: string;
   url?: string | null;
   uploading: boolean;
   accept: string;
   onUpload: (file: File) => void;
+  /** Quando false, some com o botão de anexar/substituir assim que houver um arquivo (só o "Ver" fica visível). */
+  allowReplace?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -110,16 +113,18 @@ function DocumentoUploadRow({
         }}
       />
       <span className="text-xs text-muted-foreground w-36 shrink-0">{label}</span>
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-7 text-xs text-muted-foreground hover:text-primary"
-        disabled={uploading}
-        onClick={() => inputRef.current?.click()}
-      >
-        {uploading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
-        {url ? "Substituir" : "Anexar"}
-      </Button>
+      {(allowReplace || !url) && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs text-muted-foreground hover:text-primary"
+          disabled={uploading}
+          onClick={() => inputRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+          {url ? "Substituir" : "Anexar"}
+        </Button>
+      )}
       {url && (
         <Button
           size="sm"
@@ -384,10 +389,11 @@ export default function Contratos() {
                     </p>
                     <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
                       <DocumentoUploadRow
-                        label="Contrato de locação"
+                        label="Contrato - 1ª Locação"
                         url={savedDocs.contratoLocacaoUrl}
                         uploading={uploadingLocacao}
                         accept="application/pdf,image/jpeg,image/png,image/webp"
+                        allowReplace={false}
                         onUpload={(file) => handleContratoLocacaoUpload(savedContractId, file)}
                       />
                       <DocumentoUploadRow
@@ -636,10 +642,11 @@ export default function Contratos() {
                     <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
                       <p className="text-xs font-medium text-muted-foreground">Documentos do contrato</p>
                       <DocumentoUploadRow
-                        label="Contrato de locação"
+                        label="Contrato - 1ª Locação"
                         url={savedDocs.contratoLocacaoUrl}
                         uploading={uploadingLocacao}
                         accept="application/pdf,image/jpeg,image/png,image/webp"
+                        allowReplace={false}
                         onUpload={(file) => handleContratoLocacaoUpload(editingId, file)}
                       />
                       <DocumentoUploadRow
@@ -757,10 +764,11 @@ export default function Contratos() {
                   </div>
                   <div className="mt-3 space-y-2">
                     <DocumentoUploadRow
-                      label="Contrato de locação"
+                      label="Contrato - 1ª Locação"
                       url={selectedContract.contratoLocacaoUrl}
                       uploading={uploadingLocacao}
                       accept="application/pdf,image/jpeg,image/png,image/webp"
+                      allowReplace={false}
                       onUpload={(file) => handleContratoLocacaoUpload(selectedContract.id, file)}
                     />
                     <DocumentoUploadRow

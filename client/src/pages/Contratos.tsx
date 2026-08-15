@@ -21,7 +21,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, FileText, CheckCircle2, Circle, User, Upload, ExternalLink, Loader2 } from "lucide-react";
+import { Plus, Trash2, FileText, CheckCircle2, Circle, User, Upload, ExternalLink, Loader2, Pencil } from "lucide-react";
 import { brl, formatDate } from "@/lib/format";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 import MarcarRecebidoDialog from "@/components/MarcarRecebidoDialog";
@@ -135,6 +135,9 @@ export default function Contratos() {
   // Contrato recém-criado nesta sessão do diálogo: enquanto definido, o diálogo fica aberto
   // mostrando os 3 anexos em vez do formulário (o upload só é possível com o id já existente).
   const [savedContractId, setSavedContractId] = useState<number | null>(null);
+  // Contrato existente sendo editado (abre o mesmo diálogo pré-preenchido, com o formulário
+  // e os anexos visíveis juntos, já que o id já existe desde o início).
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [savedDocs, setSavedDocs] = useState<{ contratoLocacaoUrl?: string; garantiaDocumentoUrl?: string; apoliceSeguroUrl?: string }>({});
   const [uploadingLocacao, setUploadingLocacao] = useState(false);
   const [uploadingGarantia, setUploadingGarantia] = useState(false);
@@ -159,7 +162,7 @@ export default function Contratos() {
 
   const { data: garantias } = trpc.guaranteeTypes.list.useQuery();
 
-  const reset = () => { setForm(emptyForm); setSavedContractId(null); setSavedDocs({}); };
+  const reset = () => { setForm(emptyForm); setSavedContractId(null); setSavedDocs({}); setEditingId(null); };
 
   const create = trpc.longTermContracts.create.useMutation({
     onSuccess: (res) => {
@@ -167,6 +170,15 @@ export default function Contratos() {
       setSavedContractId(res.id);
       setSelectedContractId(res.id);
       toast.success("Contrato cadastrado. Anexe os documentos abaixo.");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const update = trpc.longTermContracts.update.useMutation({
+    onSuccess: () => {
+      utils.longTermContracts.list.invalidate();
+      toast.success("Contrato atualizado.");
+      setOpen(false);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -191,8 +203,32 @@ export default function Contratos() {
   const dataReajusteCalculada = form.dataInicio ? addMonthsToDate(form.dataInicio, 12) : "";
 
   const submit = () => {
-    if (!form.propertyId) { toast.error("Selecione o imóvel."); return; }
     if (!form.dataInicio) { toast.error("Informe a data de início do contrato."); return; }
+
+    if (editingId !== null) {
+      update.mutate({
+        id: editingId,
+        dataInicio: form.dataInicio,
+        indiceCorrecao: form.indiceCorrecao || "IGPM",
+        prazoMeses: prazoMesesNum,
+        diaVencimentoAluguel: Number(form.diaVencimentoAluguel) || 10,
+        carenciaInicio: form.carenciaInicio || undefined,
+        carenciaFim: form.carenciaFim || undefined,
+        nomeInquilino: form.nomeInquilino || undefined,
+        cpfCnpjInquilino: form.cpfCnpjInquilino || undefined,
+        contatoInquilino: form.contatoInquilino || undefined,
+        telefoneInquilino: form.telefoneInquilino || undefined,
+        celularInquilino: form.celularInquilino || undefined,
+        whatsappInquilino: form.whatsappInquilino || undefined,
+        emailInquilino: form.emailInquilino || undefined,
+        tipoGarantia: form.tipoGarantia || undefined,
+        comissaoPct: form.tipoAdministracao === "propria" ? 0 : Number(form.comissaoPct) || 0,
+        tipoAdministracao: form.tipoAdministracao,
+      });
+      return;
+    }
+
+    if (!form.propertyId) { toast.error("Selecione o imóvel."); return; }
     const valor = Number(form.valorAluguel);
     if (!valor || valor <= 0) { toast.error("Informe o valor do aluguel."); return; }
     create.mutate({
@@ -219,6 +255,37 @@ export default function Contratos() {
 
   const nomeImovel = (id: number) => imoveis?.find((p) => p.id === id)?.apelido ?? "—";
   const selectedContract = contratos?.find((c) => c.id === selectedContractId);
+
+  const openEdit = (c: NonNullable<typeof contratos>[number]) => {
+    setSavedContractId(null);
+    setEditingId(c.id);
+    setForm({
+      propertyId: String(c.propertyId),
+      dataInicio: c.dataInicio,
+      prazoMeses: String(c.prazoMeses),
+      diaVencimentoAluguel: String(c.diaVencimentoAluguel),
+      indiceCorrecao: c.indiceCorrecao,
+      carenciaInicio: c.carenciaInicio || "",
+      carenciaFim: c.carenciaFim || "",
+      valorAluguel: "",
+      nomeInquilino: c.nomeInquilino || "",
+      cpfCnpjInquilino: c.cpfCnpjInquilino || "",
+      contatoInquilino: c.contatoInquilino || "",
+      telefoneInquilino: c.telefoneInquilino || "",
+      celularInquilino: c.celularInquilino || "",
+      whatsappInquilino: c.whatsappInquilino || "",
+      emailInquilino: c.emailInquilino || "",
+      tipoGarantia: c.tipoGarantia || "",
+      comissaoPct: String(c.comissaoPct ?? "0"),
+      tipoAdministracao: c.tipoAdministracao as ContractForm["tipoAdministracao"],
+    });
+    setSavedDocs({
+      contratoLocacaoUrl: c.contratoLocacaoUrl || undefined,
+      garantiaDocumentoUrl: c.garantiaDocumentoUrl || undefined,
+      apoliceSeguroUrl: c.apoliceSeguroUrl || undefined,
+    });
+    setOpen(true);
+  };
 
   /** Upload genérico de documento do contrato, usado pelos 3 slots (locação, garantia, apólice). */
   const uploadContractDoc = async (
@@ -277,7 +344,9 @@ export default function Contratos() {
               </DialogTrigger>
               <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle className="font-serif">{savedContractId ? "Anexar documentos" : "Novo contrato"}</DialogTitle>
+                  <DialogTitle className="font-serif">
+                    {savedContractId ? "Anexar documentos" : editingId !== null ? "Editar contrato" : "Novo contrato"}
+                  </DialogTitle>
                 </DialogHeader>
                 {savedContractId ? (
                   <div className="grid gap-3 py-2">
@@ -312,19 +381,27 @@ export default function Contratos() {
                 <div className="grid gap-4 py-2">
                   <div className="grid gap-1.5">
                     <Label>Imóvel</Label>
-                    <Select value={form.propertyId} onValueChange={(v) => setForm({ ...form, propertyId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Selecione o imóvel de longa duração" /></SelectTrigger>
-                      <SelectContent>
-                        {imoveisSemContrato.map((p) => (
-                          <SelectItem key={p.id} value={String(p.id)}>{p.apelido}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!longTermProps.length ? (
-                      <p className="text-xs text-amber-600">Nenhum imóvel marcado como "Longa duração". Ajuste o tipo de locação em Imóveis.</p>
-                    ) : !imoveisSemContrato.length ? (
-                      <p className="text-xs text-amber-600">Todos os imóveis de longa duração já têm contrato cadastrado.</p>
-                    ) : null}
+                    {editingId !== null ? (
+                      <p className="text-sm px-3 py-2 rounded-md border border-input bg-secondary/30 text-muted-foreground">
+                        {nomeImovel(Number(form.propertyId))} <span className="text-xs">(não pode ser alterado)</span>
+                      </p>
+                    ) : (
+                      <>
+                        <Select value={form.propertyId} onValueChange={(v) => setForm({ ...form, propertyId: v })}>
+                          <SelectTrigger><SelectValue placeholder="Selecione o imóvel de longa duração" /></SelectTrigger>
+                          <SelectContent>
+                            {imoveisSemContrato.map((p) => (
+                              <SelectItem key={p.id} value={String(p.id)}>{p.apelido}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {!longTermProps.length ? (
+                          <p className="text-xs text-amber-600">Nenhum imóvel marcado como "Longa duração". Ajuste o tipo de locação em Imóveis.</p>
+                        ) : !imoveisSemContrato.length ? (
+                          <p className="text-xs text-amber-600">Todos os imóveis de longa duração já têm contrato cadastrado.</p>
+                        ) : null}
+                      </>
+                    )}
                   </div>
 
                   <div className={form.tipoAdministracao === "propria" ? "grid gap-1.5" : "grid grid-cols-2 gap-3"}>
@@ -411,15 +488,22 @@ export default function Contratos() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-1.5">
-                      <Label>Valor do aluguel (R$)</Label>
-                      <Input value={form.valorAluguel} onChange={(e) => setForm({ ...form, valorAluguel: e.target.value })} type="number" step="0.01" />
-                    </div>
-                    <div className="grid gap-1.5">
+                    {editingId === null && (
+                      <div className="grid gap-1.5">
+                        <Label>Valor do aluguel (R$)</Label>
+                        <Input value={form.valorAluguel} onChange={(e) => setForm({ ...form, valorAluguel: e.target.value })} type="number" step="0.01" />
+                      </div>
+                    )}
+                    <div className={editingId === null ? "grid gap-1.5" : "grid gap-1.5 col-span-2"}>
                       <Label>Dia de vencimento</Label>
                       <Input value={form.diaVencimentoAluguel} onChange={(e) => setForm({ ...form, diaVencimentoAluguel: e.target.value })} type="number" min="1" max="31" />
                     </div>
                   </div>
+                  {editingId !== null && (
+                    <p className="text-xs text-muted-foreground -mt-2">
+                      Para alterar o valor do aluguel, gerencie as parcelas em "Aluguéis a Receber".
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
                       <Label>Índice de correção</Label>
@@ -444,6 +528,33 @@ export default function Contratos() {
                       </Select>
                     </div>
                   </div>
+
+                  {editingId !== null && (
+                    <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
+                      <p className="text-xs font-medium text-muted-foreground">Documentos do contrato</p>
+                      <DocumentoUploadRow
+                        label="Contrato de locação"
+                        url={savedDocs.contratoLocacaoUrl}
+                        uploading={uploadingLocacao}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleContratoLocacaoUpload(editingId, file)}
+                      />
+                      <DocumentoUploadRow
+                        label="Documentos da fiança"
+                        url={savedDocs.garantiaDocumentoUrl}
+                        uploading={uploadingGarantia}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleGarantiaDocUpload(editingId, file)}
+                      />
+                      <DocumentoUploadRow
+                        label="Apólice de seguro"
+                        url={savedDocs.apoliceSeguroUrl}
+                        uploading={uploadingApolice}
+                        accept="application/pdf,image/jpeg,image/png,image/webp"
+                        onUpload={(file) => handleApoliceSeguroUpload(editingId, file)}
+                      />
+                    </div>
+                  )}
                 </div>
                 )}
                 <DialogFooter>
@@ -452,7 +563,9 @@ export default function Contratos() {
                   ) : (
                     <>
                       <Button variant="outline" className="bg-background" onClick={() => setOpen(false)}>Cancelar</Button>
-                      <Button onClick={submit} disabled={create.isPending}>Salvar</Button>
+                      <Button onClick={submit} disabled={create.isPending || update.isPending}>
+                        {editingId !== null ? "Salvar alterações" : "Salvar"}
+                      </Button>
                     </>
                   )}
                 </DialogFooter>
@@ -518,15 +631,27 @@ export default function Contratos() {
             ) : (
               <Card className="overflow-hidden py-0">
                 <div className="px-4 py-3 border-b border-border">
-                  <p className="text-sm font-medium">{selectedContract.nomeInquilino || "Inquilino"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Vencimento todo dia {selectedContract.diaVencimentoAluguel} · {nomeImovel(selectedContract.propertyId)}
-                    {selectedContract.tipoGarantia ? ` · Garantia: ${selectedContract.tipoGarantia}` : ""}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {TIPO_ADMIN_LABELS_CONTRATO[selectedContract.tipoAdministracao as ContractForm["tipoAdministracao"]]}
-                    {Number(selectedContract.comissaoPct) > 0 ? ` · Comissão ${Number(selectedContract.comissaoPct)}%` : ""}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{selectedContract.nomeInquilino || "Inquilino"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Vencimento todo dia {selectedContract.diaVencimentoAluguel} · {nomeImovel(selectedContract.propertyId)}
+                        {selectedContract.tipoGarantia ? ` · Garantia: ${selectedContract.tipoGarantia}` : ""}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {TIPO_ADMIN_LABELS_CONTRATO[selectedContract.tipoAdministracao as ContractForm["tipoAdministracao"]]}
+                        {Number(selectedContract.comissaoPct) > 0 ? ` · Comissão ${Number(selectedContract.comissaoPct)}%` : ""}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-primary shrink-0"
+                      onClick={() => openEdit(selectedContract)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                   <div className="mt-3 space-y-2">
                     <DocumentoUploadRow
                       label="Contrato de locação"

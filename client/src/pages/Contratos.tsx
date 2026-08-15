@@ -568,7 +568,7 @@ export default function Contratos() {
                   </div>
 
                   <div className="grid gap-1.5">
-                    <Label>Renovação automática</Label>
+                    <Label>Renovação</Label>
                     <Select
                       value={form.renovacaoAutomatica}
                       onValueChange={(v) => setForm({ ...form, renovacaoAutomatica: v as ContractForm["renovacaoAutomatica"] })}

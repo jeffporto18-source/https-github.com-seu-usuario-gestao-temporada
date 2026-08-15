@@ -15,15 +15,27 @@ import { CheckCircle2, Circle, Trash2 } from "lucide-react";
 import { brl, formatDate, formatCompetencia } from "@/lib/format";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 import MarcarRecebidoDialog from "@/components/MarcarRecebidoDialog";
+import { Input } from "@/components/ui/input";
 
 export default function AlugueisReceber() {
   const utils = trpc.useUtils();
-  const { data: charges, isLoading } = trpc.longTermContracts.charges.useQuery({});
+  const { data: chargesRaw, isLoading } = trpc.longTermContracts.charges.useQuery({});
   const { data: contratos } = trpc.longTermContracts.list.useQuery({});
   const { data: imoveis } = trpc.properties.list.useQuery();
   const [recebendo, setRecebendo] = useState<{ id: number; valor: number } | null>(null);
+  const [vencimentoDe, setVencimentoDe] = useState("");
+  const [vencimentoAte, setVencimentoAte] = useState("");
 
   const nomeImovel = (id: number) => imoveis?.find((p) => p.id === id)?.apelido ?? "—";
+
+  const charges = useMemo(
+    () =>
+      (chargesRaw ?? []).filter(
+        (c) => (!vencimentoDe || c.dataVencimento >= vencimentoDe) && (!vencimentoAte || c.dataVencimento <= vencimentoAte),
+      ),
+    [chargesRaw, vencimentoDe, vencimentoAte],
+  );
+  const filtroAtivo = !!vencimentoDe || !!vencimentoAte;
 
   const markPending = trpc.longTermContracts.markPending.useMutation({
     onSuccess: () => { utils.longTermContracts.charges.invalidate(); toast.success("Movido de volta para pendente."); },
@@ -65,10 +77,33 @@ export default function AlugueisReceber() {
         subtitle="Todas as parcelas dos contratos de longa duração, do primeiro ao último mês."
       />
 
+      <Card className="mb-4 p-3">
+        <p className="text-[11px] font-medium text-muted-foreground mb-2">Filtrar por data de vencimento</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-1">
+            <label className="text-[11px] text-muted-foreground">De</label>
+            <Input type="date" value={vencimentoDe} onChange={(e) => setVencimentoDe(e.target.value)} className="h-8 w-[150px]" />
+          </div>
+          <div className="grid gap-1">
+            <label className="text-[11px] text-muted-foreground">Até</label>
+            <Input type="date" value={vencimentoAte} onChange={(e) => setVencimentoAte(e.target.value)} className="h-8 w-[150px]" />
+          </div>
+          {filtroAtivo && (
+            <Button variant="ghost" size="sm" className="h-8" onClick={() => { setVencimentoDe(""); setVencimentoAte(""); }}>
+              Limpar filtro
+            </Button>
+          )}
+        </div>
+      </Card>
+
       {isLoading ? (
         <SkeletonList />
       ) : !grupos.length ? (
-        <EmptyState title="Nenhuma parcela cadastrada" subtitle="Cadastre um contrato de longa duração para ver os aluguéis a receber aqui." />
+        filtroAtivo ? (
+          <EmptyState title="Nenhuma parcela nesse período" subtitle="Ajuste o filtro de data de vencimento para ver outras parcelas." />
+        ) : (
+          <EmptyState title="Nenhuma parcela cadastrada" subtitle="Cadastre um contrato de longa duração para ver os aluguéis a receber aqui." />
+        )
       ) : (
         <>
           <div className="mb-4 grid grid-cols-2 gap-3">

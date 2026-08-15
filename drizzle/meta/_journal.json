@@ -218,6 +218,13 @@
       "when": 1786817954465,
       "tag": "0030_add_renovacao_automatica",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1786829029617,
+      "tag": "0031_add_socios",
+      "breakpoints": true
     }
   ]
 }

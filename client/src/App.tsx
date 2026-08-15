@@ -19,6 +19,7 @@ import Receitas from "./pages/Receitas";
 import Despesas from "./pages/Despesas";
 import Aportes from "./pages/Aportes";
 import Fornecedores from "./pages/Fornecedores";
+import Socios from "./pages/Socios";
 import PlanoContas from "./pages/PlanoContas";
 import Reservas from "./pages/Reservas";
 import Dre from "./pages/Dre";
@@ -146,6 +147,11 @@ function App() {
             <Route path="/fornecedores">
               <RequireAuth>
                 <DashboardLayout><Fornecedores /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/socios">
+              <RequireAuth>
+                <DashboardLayout><Socios /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/plano-contas">

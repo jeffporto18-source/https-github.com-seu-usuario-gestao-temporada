@@ -289,6 +289,20 @@ export type Fornecedor = typeof fornecedores.$inferSelect;
 export type InsertFornecedor = typeof fornecedores.$inferInsert;
 
 /**
+ * Sócios da empresa (administradora), apenas nome e CPF.
+ */
+export const socios = mysqlTable("socios", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerId: int("ownerId").notNull(),
+  nome: varchar("nome", { length: 150 }).notNull(),
+  cpf: varchar("cpf", { length: 20 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Socio = typeof socios.$inferSelect;
+export type InsertSocio = typeof socios.$inferInsert;
+
+/**
  * Itens de inventário (enxoval) por imóvel.
  */
 export const inventoryItems = mysqlTable("inventory_items", {

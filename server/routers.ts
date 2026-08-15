@@ -571,6 +571,21 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteFornecedor(ctx.user.id, input.id)),
   }),
 
+  // -------------------------------------------------------------- sócios
+  socios: router({
+    list: protectedProcedure.query(({ ctx }) => db.listSocios(ctx.user.id)),
+    create: protectedProcedure
+      .input(z.object({ nome: z.string().min(1), cpf: z.string().min(1) }))
+      .mutation(({ ctx, input }) => db.createSocio({ ownerId: ctx.user.id, nome: input.nome, cpf: input.cpf })),
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), nome: z.string().optional(), cpf: z.string().optional() }))
+      .mutation(({ ctx, input }) => {
+        const { id, ...rest } = input;
+        return db.updateSocio(ctx.user.id, id, rest);
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteSocio(ctx.user.id, input.id)),
+  }),
+
   // -------------------------------------------------------- inventory items
   inventoryItems: router({
     list: protectedProcedure

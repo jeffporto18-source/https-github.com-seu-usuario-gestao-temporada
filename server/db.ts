@@ -15,6 +15,7 @@ import {
   guaranteeTypes,
   DEFAULT_GUARANTEE_TYPES,
   fornecedores,
+  socios,
   inventoryItems,
   longTermContracts,
   contractRentCharges,
@@ -28,6 +29,7 @@ import {
   InsertCurtaManager,
   InsertGuaranteeType,
   InsertFornecedor,
+  InsertSocio,
   InsertInventoryItem,
   InsertLongTermContract,
   InsertContractRentCharge,
@@ -505,6 +507,27 @@ export async function updateFornecedor(
 export async function deleteFornecedor(ownerId: number, id: number) {
   const db = await requireDb();
   await db.delete(fornecedores).where(and(eq(fornecedores.ownerId, ownerId), eq(fornecedores.id, id)));
+}
+
+// -------------------------------------------------------------------- sócios
+export async function listSocios(ownerId: number) {
+  const db = await requireDb();
+  return db.select().from(socios).where(eq(socios.ownerId, ownerId)).orderBy(socios.nome);
+}
+
+export async function createSocio(data: InsertSocio) {
+  const db = await requireDb();
+  await db.insert(socios).values(data);
+}
+
+export async function updateSocio(ownerId: number, id: number, data: Partial<Pick<InsertSocio, "nome" | "cpf">>) {
+  const db = await requireDb();
+  await db.update(socios).set(data).where(and(eq(socios.ownerId, ownerId), eq(socios.id, id)));
+}
+
+export async function deleteSocio(ownerId: number, id: number) {
+  const db = await requireDb();
+  await db.delete(socios).where(and(eq(socios.ownerId, ownerId), eq(socios.id, id)));
 }
 
 // -------------------------------------------------------------- inventory items

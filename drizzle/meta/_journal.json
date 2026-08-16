@@ -232,6 +232,13 @@
       "when": 1786830061121,
       "tag": "0032_add_socio_to_properties",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1786830121121,
+      "tag": "0033_add_property_costs",
+      "breakpoints": true
     }
   ]
 }

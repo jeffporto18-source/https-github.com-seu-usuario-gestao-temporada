@@ -26,6 +26,7 @@ import Dre from "./pages/Dre";
 import DreEmpresa from "./pages/DreEmpresa";
 import EfdContribuicoes from "./pages/EfdContribuicoes";
 import Dimob from "./pages/Dimob";
+import InformeIr from "./pages/InformeIr";
 import Repasse from "./pages/Repasse";
 import ImportarCsv from "./pages/ImportarCsv";
 import Onboarding from "./pages/Onboarding";
@@ -182,6 +183,11 @@ function App() {
             <Route path="/dimob">
               <RequireAuth>
                 <DashboardLayout><Dimob /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/informe-ir">
+              <RequireAuth>
+                <DashboardLayout><InformeIr /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/repasse">

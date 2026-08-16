@@ -29,9 +29,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Building2, Pencil, FileText, Upload, User, CheckCircle2, Circle, MoreHorizontal, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Building2, Pencil, FileText, Upload, User, CheckCircle2, Circle, MoreHorizontal, ExternalLink, Receipt } from "lucide-react";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 import { brl, formatDate } from "@/lib/format";
+import PropertyCostsDialog from "@/components/PropertyCostsDialog";
 
 interface PropertyForm {
   clientId: string;
@@ -407,6 +408,7 @@ interface ImovelRowProps {
 function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: ImovelRowProps) {
   const [dadosOpen, setDadosOpen] = useState(false);
   const [fichaOpen, setFichaOpen] = useState(false);
+  const [custosOpen, setCustosOpen] = useState(false);
   const isLonga = p.tipoLocacao === "longa";
 
   const { data: contratos } = trpc.longTermContracts.list.useQuery({ propertyId: p.id }, { enabled: isLonga });
@@ -457,6 +459,9 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
                 <ExternalLink className="mr-2 h-3.5 w-3.5" /> Ver contrato
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem onClick={() => setCustosOpen(true)}>
+              <Receipt className="mr-2 h-3.5 w-3.5" /> Condomínio e IPTU
+            </DropdownMenuItem>
             {isLonga && contrato && (
               <>
                 <DropdownMenuSeparator />
@@ -476,6 +481,8 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <PropertyCostsDialog propertyId={p.id} apelido={p.apelido} open={custosOpen} onOpenChange={setCustosOpen} />
 
       <Dialog open={dadosOpen} onOpenChange={setDadosOpen}>
         <DialogContent>

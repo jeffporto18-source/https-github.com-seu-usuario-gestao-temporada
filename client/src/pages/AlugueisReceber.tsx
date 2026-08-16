@@ -70,6 +70,17 @@ export default function AlugueisReceber() {
   );
   const totalGeralPendente = useMemo(() => (charges ?? []).filter((c) => c.status !== "recebido").reduce((s, c) => s + Number(c.valor), 0), [charges]);
 
+  // Condomínio e IPTU só aparecem quando algum contrato manda cobrá-los junto com o aluguel —
+  // quem não usa o recurso continua vendo a tela enxuta de antes.
+  const temRepasse = useMemo(
+    () => (charges ?? []).some((c) => Number(c.condominio ?? 0) > 0 || Number(c.iptu ?? 0) > 0),
+    [charges],
+  );
+  const totalRepasse = useMemo(
+    () => (charges ?? []).reduce((s, c) => s + Number(c.condominio ?? 0) + Number(c.iptu ?? 0), 0),
+    [charges],
+  );
+
   return (
     <div className="max-w-4xl mx-auto">
       <PageHeader
@@ -117,6 +128,17 @@ export default function AlugueisReceber() {
             </Card>
           </div>
 
+          {temRepasse && (
+            <Card className="mb-4 px-4 py-2.5">
+              <p className="text-[11px] text-muted-foreground">Condomínio e IPTU repassados no período</p>
+              <p className="text-lg font-serif font-semibold leading-tight">{brl(totalRepasse)}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Valores de terceiros: entram na cobrança do inquilino, mas não são receita do proprietário — ficam fora
+                dos totais acima, da comissão e do informe de IR.
+              </p>
+            </Card>
+          )}
+
           <div className="space-y-3">
             {grupos.map((g) => (
               <Card key={g.competencia} className="overflow-hidden py-0">
@@ -131,7 +153,10 @@ export default function AlugueisReceber() {
                       <TableRow className="text-[11px]">
                         <TableHead className="h-7">Imóvel</TableHead>
                         <TableHead className="h-7">Vencimento</TableHead>
-                        <TableHead className="h-7 text-right">Valor</TableHead>
+                        <TableHead className="h-7 text-right">Aluguel</TableHead>
+                        {temRepasse && <TableHead className="h-7 text-right">Condomínio</TableHead>}
+                        {temRepasse && <TableHead className="h-7 text-right">IPTU</TableHead>}
+                        {temRepasse && <TableHead className="h-7 text-right">Total cobrado</TableHead>}
                         <TableHead className="h-7 w-0"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -146,6 +171,13 @@ export default function AlugueisReceber() {
                           </TableCell>
                           <TableCell className="py-1.5 text-muted-foreground">{formatDate(ch.dataVencimento)}</TableCell>
                           <TableCell className="py-1.5 text-right tabular-nums font-medium">{brl(ch.valor)}</TableCell>
+                          {temRepasse && <TableCell className="py-1.5 text-right tabular-nums text-muted-foreground">{brl(ch.condominio ?? 0)}</TableCell>}
+                          {temRepasse && <TableCell className="py-1.5 text-right tabular-nums text-muted-foreground">{brl(ch.iptu ?? 0)}</TableCell>}
+                          {temRepasse && (
+                            <TableCell className="py-1.5 text-right tabular-nums font-medium">
+                              {brl(Number(ch.valor) + Number(ch.condominio ?? 0) + Number(ch.iptu ?? 0))}
+                            </TableCell>
+                          )}
                           <TableCell className="py-1.5">
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => deleteCharge.mutate({ id: ch.id })}>
                               <Trash2 className="h-3 w-3" />
@@ -184,6 +216,13 @@ export default function AlugueisReceber() {
                                 )}
                               </TableCell>
                               <TableCell className="py-1.5 text-right tabular-nums font-medium">{brl(ch.valorRecebido ?? ch.valor)}</TableCell>
+                              {temRepasse && <TableCell className="py-1.5 text-right tabular-nums text-muted-foreground">{brl(ch.condominio ?? 0)}</TableCell>}
+                              {temRepasse && <TableCell className="py-1.5 text-right tabular-nums text-muted-foreground">{brl(ch.iptu ?? 0)}</TableCell>}
+                              {temRepasse && (
+                                <TableCell className="py-1.5 text-right tabular-nums font-medium">
+                                  {brl(Number(ch.valorRecebido ?? ch.valor) + Number(ch.condominio ?? 0) + Number(ch.iptu ?? 0))}
+                                </TableCell>
+                              )}
                               <TableCell className="py-1.5">
                                 <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => deleteCharge.mutate({ id: ch.id })}>
                                   <Trash2 className="h-3 w-3" />

@@ -46,6 +46,7 @@ const allMenuItems = [
   { icon: PieChart, label: "DRE Empresa", path: "/dre-empresa", hideFor: [] as string[] },
   { icon: ClipboardList, label: "EFD Contribuições", path: "/efd-contribuicoes", hideFor: [] as string[] },
   { icon: ScrollText, label: "DIMOB", path: "/dimob", hideFor: [] as string[] },
+  { icon: FileText, label: "Informe de IR", path: "/informe-ir", hideFor: [] as string[] },
   { icon: FileText, label: "Repasse ao Proprietário", path: "/repasse", hideFor: ["holding"] },
   { icon: Upload, label: "Importar CSV", path: "/importar", hideFor: [] as string[] },
   { icon: UsersRound, label: "Usuários", path: "/usuarios", hideFor: [] as string[] },

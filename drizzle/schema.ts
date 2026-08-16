@@ -149,6 +149,9 @@ export const ledgerEntries = mysqlTable("ledger_entries", {
   reservationId: int("reservationId"),
   // Vincula lançamento automático à parcela de aluguel (longa duração) que o gerou (null = lançamento manual)
   contractRentChargeId: int("contractRentChargeId"),
+  // Vincula lançamento automático ao custo do imóvel (condomínio/IPTU/rateio) que o gerou. Só
+  // existe quando o custo é do proprietário; quando é do inquilino não há lançamento nenhum.
+  propertyCostId: int("propertyCostId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -322,6 +325,43 @@ export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type InsertInventoryItem = typeof inventoryItems.$inferInsert;
 
 /**
+ * Custos recorrentes do imóvel (condomínio e IPTU) e rateios extraordinários.
+ *
+ * O valor pertence ao imóvel; QUEM PAGA pertence ao contrato de locação vigente na competência
+ * (`long_term_contracts.condominioPor` / `.iptuPor`) — exceto nos extras, cuja responsabilidade é
+ * negociada caso a caso e por isso mora no próprio registro (`responsavel`).
+ *
+ * O histórico é preservado por vigência: para mudar o valor do condomínio, encerra-se o registro
+ * atual e cria-se outro a partir da competência nova, de modo que a DRE de um mês passado continue
+ * enxergando o valor que valia naquele mês.
+ */
+export const propertyCosts = mysqlTable("property_costs", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerId: int("ownerId").notNull(),
+  propertyId: int("propertyId").notNull(),
+  tipo: mysqlEnum("tipo", ["condominio", "iptu", "condominio_extra"]).notNull(),
+  // Valor de CADA parcela (não o total do ano): o IPTU anual dividido pela quantidade escolhida.
+  valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
+  competenciaInicio: varchar("competenciaInicio", { length: 7 }).notNull(), // "AAAA-MM" da 1ª parcela
+  // Condomínio: quantidade em aberto, encerrada ao surgir um valor novo. IPTU: 1 ou 10. Extra: 1.
+  qtdMeses: int("qtdMeses").notNull().default(1),
+  dia: int("dia").notNull().default(10), // dia de vencimento no mês
+  descricao: varchar("descricao", { length: 300 }),
+  // Só nos extras (rateio de obra, fundo de reserva): a lei costuma atribuir a despesa
+  // extraordinária ao proprietário, mas isso é negociável, então cada rateio decide o seu.
+  responsavel: mysqlEnum("costResponsavel", ["proprietario", "inquilino"]),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PropertyCost = typeof propertyCosts.$inferSelect;
+export type InsertPropertyCost = typeof propertyCosts.$inferInsert;
+
+/** Quem responde por condomínio/IPTU num contrato, e se o dinheiro passa pela administradora. */
+export const COST_RESPONSIBILITY = ["proprietario", "inquilino_direto", "inquilino_via_repasse"] as const;
+export type CostResponsibility = (typeof COST_RESPONSIBILITY)[number];
+
+/**
  * Contratos de locação de longa duração vinculados a um imóvel.
  */
 export const longTermContracts = mysqlTable("long_term_contracts", {
@@ -364,6 +404,12 @@ export const longTermContracts = mysqlTable("long_term_contracts", {
   prazoIndeterminadoDataInicio: date("prazoIndeterminadoDataInicio", { mode: "string" }),
   prazoIndeterminadoValor: decimal("prazoIndeterminadoValor", { precision: 12, scale: 2 }),
   prazoIndeterminadoPrazoReajusteMeses: int("prazoIndeterminadoPrazoReajusteMeses"),
+  // Quem paga condomínio e IPTU enquanto este contrato vigora. `inquilino_direto` = ele paga o
+  // boleto no nome dele e o dinheiro nunca passa pela administradora; `inquilino_via_repasse` =
+  // vem junto com o aluguel e a administradora repassa. Nos dois casos o custo NÃO é despesa do
+  // proprietário e por isso não entra na DRE dele.
+  condominioPor: mysqlEnum("condominioPor", ["proprietario", "inquilino_direto", "inquilino_via_repasse"]).notNull().default("proprietario"),
+  iptuPor: mysqlEnum("iptuPor", ["proprietario", "inquilino_direto", "inquilino_via_repasse"]).notNull().default("proprietario"),
 });
 
 export type LongTermContract = typeof longTermContracts.$inferSelect;
@@ -391,6 +437,11 @@ export const contractRentCharges = mysqlTable("contract_rent_charges", {
   valorRecebido: decimal("valorRecebido", { precision: 12, scale: 2 }),
   // Lançamento gerado automaticamente para registrar o desconto concedido (conta escolhida no plano de contas)
   descontoLedgerEntryId: int("descontoLedgerEntryId"),
+  // Condomínio e IPTU repassados nesta parcela (quando o contrato manda cobrar junto com o
+  // aluguel). Ficam FORA de `valor` de propósito: a comissão incide apenas sobre o aluguel, e o
+  // informe de IR também. Total cobrado = valor + condominio + iptu + multaJuros - desconto.
+  condominio: decimal("condominio", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  iptu: decimal("iptu", { precision: 12, scale: 2 }).notNull().default("0.00"),
 });
 
 export type ContractRentCharge = typeof contractRentCharges.$inferSelect;

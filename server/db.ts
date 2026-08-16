@@ -33,6 +33,11 @@ import {
   InsertInventoryItem,
   InsertLongTermContract,
   InsertContractRentCharge,
+  propertyCosts,
+  InsertPropertyCost,
+  PropertyCost,
+  LongTermContract,
+  CostResponsibility,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -561,6 +566,90 @@ export async function deleteInventoryItem(ownerId: number, id: number) {
   await db.delete(inventoryItems).where(and(eq(inventoryItems.ownerId, ownerId), eq(inventoryItems.id, id)));
 }
 
+// ------------------------------------------------------------- property costs
+export async function listPropertyCosts(ownerId: number, propertyId?: number) {
+  const db = await requireDb();
+  const conds = [eq(propertyCosts.ownerId, ownerId)];
+  if (propertyId) conds.push(eq(propertyCosts.propertyId, propertyId));
+  return db.select().from(propertyCosts).where(and(...conds)).orderBy(desc(propertyCosts.competenciaInicio));
+}
+
+export async function getPropertyCost(ownerId: number, id: number) {
+  const db = await requireDb();
+  const [row] = await db.select().from(propertyCosts).where(and(eq(propertyCosts.ownerId, ownerId), eq(propertyCosts.id, id))).limit(1);
+  return row;
+}
+
+export async function createPropertyCost(data: InsertPropertyCost) {
+  const db = await requireDb();
+  const res = await db.insert(propertyCosts).values(data);
+  return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
+}
+
+export async function updatePropertyCost(ownerId: number, id: number, data: Partial<InsertPropertyCost>) {
+  const db = await requireDb();
+  await db.update(propertyCosts).set(data).where(and(eq(propertyCosts.ownerId, ownerId), eq(propertyCosts.id, id)));
+}
+
+export async function deletePropertyCost(ownerId: number, id: number) {
+  const db = await requireDb();
+  await db.delete(propertyCosts).where(and(eq(propertyCosts.ownerId, ownerId), eq(propertyCosts.id, id)));
+}
+
+export async function deleteLedgerEntriesByPropertyCost(ownerId: number, propertyCostId: number) {
+  const db = await requireDb();
+  await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.propertyCostId, propertyCostId)));
+}
+
+/**
+ * Encerra a vigência de um custo em aberto na competência informada, para que o valor antigo
+ * continue valendo nos meses passados. Usado quando entra um valor novo de condomínio: em vez de
+ * sobrescrever o registro (o que reescreveria a DRE de meses já fechados), corta a série anterior.
+ */
+export function encerrarSerieAntes(competenciaInicio: string, novaCompetencia: string): number {
+  const [y0, m0] = competenciaInicio.split("-").map(Number);
+  const [y1, m1] = novaCompetencia.split("-").map(Number);
+  return Math.max(0, y1 * 12 + (m1 - 1) - (y0 * 12 + (m0 - 1)));
+}
+
+/** Um contrato responde pela competência quando ela cai dentro da vigência (ou da renovação por prazo indeterminado). */
+export function contratoCobreCompetencia(contrato: LongTermContract, competencia: string): boolean {
+  const inicio = contrato.dataInicio.slice(0, 7);
+  const fim = contrato.dataFim.slice(0, 7);
+  if (competencia >= inicio && competencia < fim) return true;
+  if (contrato.renovacaoAutomatica === "prazo_indeterminado" && contrato.prazoIndeterminadoDataInicio) {
+    return competencia >= contrato.prazoIndeterminadoDataInicio.slice(0, 7);
+  }
+  return false;
+}
+
+/**
+ * Quem paga um custo numa competência — a única fonte dessa decisão no sistema.
+ *
+ * Sem contrato cobrindo o mês (imóvel vago) o custo é do proprietário: não há a quem repassar.
+ * Nos rateios extraordinários a responsabilidade vem do próprio registro, porque é negociada caso
+ * a caso; quando ela recai sobre o inquilino, o custo segue a forma de cobrança que o contrato já
+ * usa para o condomínio (direto ou junto com o aluguel).
+ */
+export function responsavelPeloCusto(custo: PropertyCost, contrato: LongTermContract | null): CostResponsibility {
+  if (!contrato) return "proprietario";
+  if (custo.tipo === "condominio_extra") {
+    if (custo.responsavel !== "inquilino") return "proprietario";
+    return contrato.condominioPor === "inquilino_via_repasse" ? "inquilino_via_repasse" : "inquilino_direto";
+  }
+  return (custo.tipo === "iptu" ? contrato.iptuPor : contrato.condominioPor) as CostResponsibility;
+}
+
+/** Custos cuja série cobre a competência, já resolvidos com quem responde por cada um. */
+export async function custosDaCompetencia(ownerId: number, propertyId: number, competencia: string) {
+  const custos = await listPropertyCosts(ownerId, propertyId);
+  const vigentes = custos.filter((c) => competenciaNaSerie(c.competenciaInicio, c.qtdMeses, competencia));
+  if (vigentes.length === 0) return [];
+  const contratos = await listLongTermContracts(ownerId, propertyId);
+  const contrato = contratos.find((c) => contratoCobreCompetencia(c, competencia)) ?? null;
+  return vigentes.map((custo) => ({ custo, responsavel: responsavelPeloCusto(custo, contrato) }));
+}
+
 // --------------------------------------------------------- long term contracts
 export async function listLongTermContracts(ownerId: number, propertyId?: number) {
   const db = await requireDb();
@@ -625,6 +714,19 @@ export async function listContractRentChargesByYear(ownerId: number, ano: string
     .select()
     .from(contractRentCharges)
     .where(and(eq(contractRentCharges.ownerId, ownerId), like(contractRentCharges.competencia, `${ano}-%`)));
+}
+
+/**
+ * Parcelas efetivamente RECEBIDAS dentro do ano, pela data de recebimento.
+ *
+ * Diferente de `listContractRentChargesByYear`, que filtra por competência: o informe de IR segue
+ * regime de caixa, então o aluguel de dezembro pago em janeiro pertence ao ano seguinte.
+ */
+export async function listContractRentChargesRecebidasNoAno(ownerId: number, ano: string, contractId?: number) {
+  const db = await requireDb();
+  const conds = [eq(contractRentCharges.ownerId, ownerId), eq(contractRentCharges.status, "recebido"), like(contractRentCharges.dataRecebimento, `${ano}-%`)];
+  if (contractId) conds.push(eq(contractRentCharges.contractId, contractId));
+  return db.select().from(contractRentCharges).where(and(...conds)).orderBy(contractRentCharges.dataRecebimento);
 }
 
 export async function getContractRentCharge(ownerId: number, id: number) {

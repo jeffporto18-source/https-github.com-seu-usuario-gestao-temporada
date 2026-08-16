@@ -108,8 +108,8 @@ export default function LancamentoManager({ titulo, subtitulo, grupos, contrapar
   const entries = useMemo(
     () =>
       (entriesTodos ?? [])
-        // Exclui lançamentos automáticos (gerados por reserva/parcela de contrato) — essa tela é só para lançamentos manuais.
-        .filter((e) => grupos.includes(e.grupo as Grupo) && !e.reservationId && !e.contractRentChargeId)
+        // Exclui lançamentos automáticos (gerados por reserva, parcela de contrato ou custo do imóvel) — essa tela é só para lançamentos manuais.
+        .filter((e) => grupos.includes(e.grupo as Grupo) && !e.reservationId && !e.contractRentChargeId && !e.propertyCostId)
         .map((e) => ({ ...e, valor: Number(e.valor) })),
     [entriesTodos, grupos],
   );

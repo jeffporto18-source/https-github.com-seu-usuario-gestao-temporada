@@ -48,7 +48,17 @@ interface ContractForm {
   prazoIndeterminadoDataInicio: string;
   prazoIndeterminadoValor: string;
   prazoIndeterminadoPrazoReajusteMeses: string;
+  condominioPor: CostResponsibility;
+  iptuPor: CostResponsibility;
 }
+
+type CostResponsibility = "proprietario" | "inquilino_direto" | "inquilino_via_repasse";
+
+const RESPONSAVEL_CUSTO_LABELS: Record<CostResponsibility, string> = {
+  proprietario: "Proprietário",
+  inquilino_direto: "Inquilino — paga direto",
+  inquilino_via_repasse: "Inquilino — cobrado junto com o aluguel",
+};
 
 const emptyForm: ContractForm = {
   propertyId: "", dataInicio: "", prazoMeses: "12", diaVencimentoAluguel: "10",
@@ -56,6 +66,7 @@ const emptyForm: ContractForm = {
   nomeInquilino: "", cpfCnpjInquilino: "", contatoInquilino: "", telefoneInquilino: "", celularInquilino: "",
   whatsappInquilino: "", emailInquilino: "", tipoGarantia: "", comissaoPct: "0", tipoAdministracao: "propria",
   renovacaoAutomatica: "", prazoIndeterminadoDataInicio: "", prazoIndeterminadoValor: "", prazoIndeterminadoPrazoReajusteMeses: "",
+  condominioPor: "proprietario", iptuPor: "proprietario",
 };
 
 const RENOVACAO_LABELS: Record<Exclude<ContractForm["renovacaoAutomatica"], "">, string> = {
@@ -240,6 +251,8 @@ export default function Contratos() {
         prazoIndeterminadoDataInicio: form.renovacaoAutomatica === "prazo_indeterminado" ? (form.prazoIndeterminadoDataInicio || null) : null,
         prazoIndeterminadoValor: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoValor ? Number(form.prazoIndeterminadoValor) : null,
         prazoIndeterminadoPrazoReajusteMeses: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoPrazoReajusteMeses ? Number(form.prazoIndeterminadoPrazoReajusteMeses) : null,
+        condominioPor: form.condominioPor,
+        iptuPor: form.iptuPor,
       });
       return;
     }
@@ -270,6 +283,8 @@ export default function Contratos() {
       prazoIndeterminadoDataInicio: form.renovacaoAutomatica === "prazo_indeterminado" ? (form.prazoIndeterminadoDataInicio || undefined) : undefined,
       prazoIndeterminadoValor: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoValor ? Number(form.prazoIndeterminadoValor) : undefined,
       prazoIndeterminadoPrazoReajusteMeses: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoPrazoReajusteMeses ? Number(form.prazoIndeterminadoPrazoReajusteMeses) : undefined,
+      condominioPor: form.condominioPor,
+      iptuPor: form.iptuPor,
     });
   };
 
@@ -302,6 +317,8 @@ export default function Contratos() {
       prazoIndeterminadoDataInicio: c.prazoIndeterminadoDataInicio || "",
       prazoIndeterminadoValor: c.prazoIndeterminadoValor ? String(c.prazoIndeterminadoValor) : "",
       prazoIndeterminadoPrazoReajusteMeses: c.prazoIndeterminadoPrazoReajusteMeses ? String(c.prazoIndeterminadoPrazoReajusteMeses) : "",
+      condominioPor: (c.condominioPor as CostResponsibility) || "proprietario",
+      iptuPor: (c.iptuPor as CostResponsibility) || "proprietario",
     });
     setSavedDocs({
       contratoLocacaoUrl: c.contratoLocacaoUrl || undefined,
@@ -576,6 +593,38 @@ export default function Contratos() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border p-3">
+                    <p className="text-sm font-medium">Condomínio e IPTU</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Quando o inquilino responde pelo custo, ele não entra na DRE do proprietário. Os valores são
+                      cadastrados no imóvel, na aba Custos.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-1.5">
+                        <Label>Condomínio por</Label>
+                        <Select value={form.condominioPor} onValueChange={(v) => setForm({ ...form, condominioPor: v as CostResponsibility })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {Object.entries(RESPONSAVEL_CUSTO_LABELS).map(([v, label]) => (
+                              <SelectItem key={v} value={v}>{label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label>IPTU por</Label>
+                        <Select value={form.iptuPor} onValueChange={(v) => setForm({ ...form, iptuPor: v as CostResponsibility })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {Object.entries(RESPONSAVEL_CUSTO_LABELS).map(([v, label]) => (
+                              <SelectItem key={v} value={v}>{label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   </div>
 

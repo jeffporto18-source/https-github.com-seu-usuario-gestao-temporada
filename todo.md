@@ -1,5 +1,9 @@
 # Gestão de Temporada — TODO
 
+> Atualizado até o commit `6173dbe` (16/08/2026) — "Excluir lançamentos automáticos das telas de Receitas/Despesas/Aportes".
+>
+> As seções até "Melhorias: Perfil, Validação, Telefone e Gestão de Usuários" cobrem a construção inicial do produto (curta temporada + motor fiscal). As seções seguintes cobrem a evolução para gestão imobiliária completa, com locação de longa duração e contabilidade em plano de contas.
+
 ## Identidade visual
 - [x] Definir paleta elegante/sofisticada e tipografia (index.css + Google Fonts)
 - [x] Configurar DashboardLayout com navegação lateral
@@ -124,3 +128,112 @@
 - [x] Criar tela "Gerenciamento de Usuários" para o dono adicionar/remover usuários do sistema
 - [x] Adicionar procedure backend para atualizar perfil
 - [x] Adicionar procedure backend para CRUD de usuários (convite/criação pelo dono)
+
+## Locação de longa duração — base (migrações 0013–0016)
+
+- [x] Tabela `long_term_contracts` (imóvel, inquilino, vigência, valor, índice e periodicidade de reajuste, dia de vencimento)
+- [x] Tabela `contract_rent_charges` (parcelas mensais geradas a partir do contrato, com vencimento e status)
+- [x] Tabela `guarantee_types` (tipos de garantia: fiança, caução, seguro-fiança)
+- [x] Tabela `imobiliarias` (imobiliárias parceiras que intermediam contratos)
+- [x] Tabela `curta_managers` (gestores de curta temporada)
+- [x] Tabela `inventory_items` (inventário de itens por imóvel)
+- [x] Tabela `investment_categories` (categorias de aporte configuráveis)
+- [x] Campo de tipo de garantia no contrato
+- [x] Campos de comissão e administradora no contrato
+- [x] Campos de multa e desconto nas parcelas de aluguel
+- [x] Perfis de usuário `holding` e `gestor_temporada_pj`, com perfis filtrados por tipo de cadastro (PJ/PF)
+
+## Plano de contas e lançamentos
+
+- [x] Tabela `chart_accounts` e tela de Plano de Contas
+- [x] Tela unificada de Lançamentos ligada ao plano de contas
+- [x] Reformular o plano como árvore livre, de profundidade ilimitada
+- [x] Refazer com profundidade fixa em 4 níveis e páginas dedicadas de Receitas / Despesas / Aportes
+- [x] Lançamento recorrente nas páginas de Receitas / Despesas / Aportes
+- [x] Tabela `ledger_entries` (razão) substituindo `expenses` / `investments` como fonte de verdade
+- [x] Botões sempre visíveis na árvore (sem menu escondido no hover), conforme a referência visual
+- [x] Deixar os diálogos de cadastro/edição de conta mais compactos
+- [x] Trocar os diálogos por edição inline na própria árvore
+- [x] Mostrar a natureza (categoria) de cada conta principal
+- [x] Remover etiquetas redundantes de natureza e de "Conta principal" na conta raiz
+- [x] Adicionar "Conta principal" como natureza na criação de conta
+
+## Fornecedores
+
+- [x] Tabela `fornecedores` e tela de cadastro
+- [x] Vincular fornecedor ao campo Fornecedor das Despesas
+- [x] Classificação de conta de despesa no cadastro do fornecedor
+
+## Reservas — hóspede, documentos e taxas
+
+- [x] Campos de nome do hóspede, estrangeiro (sim/não) e anexo de documento de identificação
+- [x] Campo CPF do hóspede, obrigatório quando não é estrangeiro e oculto quando é
+- [x] Campo passaporte para hóspede estrangeiro
+- [x] Trocar taxa Airbnb de percentual para valor livre
+- [x] Campos de outras taxas e valor líquido recebido
+- [x] Ajustar layout do formulário (encolher campo de faxinas, alargar nome do hóspede)
+- [x] Deixar o texto do status fiscal da reserva mais claro
+
+## Importação de CSV do Airbnb — evolução
+
+- [x] Mapear as colunas da planilha do Airbnb para os novos campos da reserva
+- [x] Mapear planilha em português e corrigir datas com 1 dia de defasagem
+- [x] Suportar o novo modelo de CSV com várias unidades por planilha
+- [x] Corrigir vínculo de lançamentos automáticos com reservas duplicadas no CSV
+
+## Armazenamento de documentos
+
+- [x] Migrar armazenamento de disco local para Cloudflare R2
+- [x] Anexo de documento da garantia no contrato de longa duração
+- [x] Anexar/ver contrato de locação na aba Contratos
+- [x] Anexos de contrato de locação, fiança e apólice de seguro
+- [x] Renomear o anexo de renovação para "Contrato renovado"
+- [x] Travar substituição do contrato de locação depois de anexado
+
+## Contratos de longa duração — gestão
+
+- [x] Edição de contratos de longa duração
+- [x] Campo de renovação automática, depois renomeado para "Renovação"
+- [x] Mostrar todas as datas de reajuste no cadastro do contrato
+- [x] Mostrar as datas de reajuste em campos separados
+- [x] Impedir exclusão de imóvel com reserva ou contrato vinculado
+
+## Aluguéis a Receber
+
+- [x] Tela de parcelas de aluguel a receber, geradas a partir dos contratos
+- [x] Filtro por data de vencimento
+- [x] Pergunta de multa/juros ao marcar como recebido, apenas nesta tela
+
+## Sócios
+
+- [x] Tabela `socios` e aba de cadastro (nome e CPF)
+- [x] Campo Sócio no cadastro de imóveis de longa duração
+
+## Relatórios contábeis e fiscais
+
+- [x] Relatório mensal para a contabilidade, cobrindo curta e longa duração
+- [x] Trocar exportação CSV por Excel e PDF
+- [x] Renomear o relatório para EFD Contribuições
+- [x] Relatório anual DIMOB
+- [x] Aba "DRE Empresa" com resultado consolidado de todos os imóveis
+- [x] Não emitir nota de comissão quando o imóvel é administrado diretamente pelo proprietário
+
+## Integração automática com o razão
+
+- [x] Lançar receita de reservas e de aluguéis automaticamente no plano de contas
+- [x] Gerar despesa automática de faxina por reserva no razão
+- [x] Ocultar lançamentos automáticos das telas de Receitas / Despesas / Aportes
+- [x] Bloquear no servidor a edição/exclusão de lançamento automático por essas rotas, para não dessincronizar a reserva/parcela de origem
+
+## Painel e navegação
+
+- [x] Card "Vigência dos contratos de longa duração" no painel, com próximos reajustes e fins de contrato ordenados por data e destaque para eventos vencidos
+- [x] Esconder o card de estatística "Clientes" para o perfil holding
+- [x] Esconder Clientes e Repasse ao Proprietário no menu lateral para o perfil holding
+- [x] Remover Aportes do menu lateral e renomear Reservas para "Reservas de Curta Temporada"
+- [x] Remover o item "Receitas, despesas e aportes" do menu de três pontinhos em Imóveis
+
+## Identidade visual — revisões
+
+- [x] Trocar a paleta para terracota + azul-marinho
+- [x] Trocar a paleta para visual clean neutro com acento em azul petróleo

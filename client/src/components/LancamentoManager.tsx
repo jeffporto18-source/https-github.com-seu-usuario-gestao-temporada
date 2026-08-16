@@ -106,7 +106,11 @@ export default function LancamentoManager({ titulo, subtitulo, grupos, contrapar
   }, [contas]);
 
   const entries = useMemo(
-    () => (entriesTodos ?? []).filter((e) => grupos.includes(e.grupo as Grupo)).map((e) => ({ ...e, valor: Number(e.valor) })),
+    () =>
+      (entriesTodos ?? [])
+        // Exclui lançamentos automáticos (gerados por reserva/parcela de contrato) — essa tela é só para lançamentos manuais.
+        .filter((e) => grupos.includes(e.grupo as Grupo) && !e.reservationId && !e.contractRentChargeId)
+        .map((e) => ({ ...e, valor: Number(e.valor) })),
     [entriesTodos, grupos],
   );
 

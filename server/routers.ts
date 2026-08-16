@@ -499,6 +499,10 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const { id, valor, chartAccountId, ...rest } = input;
+        const entry = await db.getLedgerEntry(ctx.user.id, id);
+        if (entry && (entry.reservationId || entry.contractRentChargeId)) {
+          throw new Error("Este lançamento foi gerado automaticamente por uma reserva/contrato e não pode ser editado aqui.");
+        }
         let contaFields = {};
         if (chartAccountId !== undefined) {
           const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, CHART_ACCOUNT_GRUPOS);
@@ -510,7 +514,13 @@ export const appRouter = router({
           ...(valor !== undefined ? { valor: String(valor) } : {}),
         });
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteLedgerEntry(ctx.user.id, input.id)),
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const entry = await db.getLedgerEntry(ctx.user.id, input.id);
+      if (entry && (entry.reservationId || entry.contractRentChargeId)) {
+        throw new Error("Este lançamento foi gerado automaticamente por uma reserva/contrato e não pode ser excluído aqui.");
+      }
+      return db.deleteLedgerEntry(ctx.user.id, input.id);
+    }),
   }),
 
   // --------------------------------------------------------- guarantee types

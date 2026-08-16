@@ -213,6 +213,12 @@ export async function createLedgerEntry(data: InsertLedgerEntry) {
   return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
 }
 
+export async function getLedgerEntry(ownerId: number, id: number) {
+  const db = await requireDb();
+  const [entry] = await db.select().from(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.id, id))).limit(1);
+  return entry;
+}
+
 export async function updateLedgerEntry(ownerId: number, id: number, data: Partial<InsertLedgerEntry>) {
   const db = await requireDb();
   await db.update(ledgerEntries).set(data).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.id, id)));

@@ -33,6 +33,14 @@ Copie [.env.example](.env.example) para `.env`. São necessários `DATABASE_URL`
 
 `drizzle-kit migrate` separa os statements de cada `.sql` pelo marcador `--> statement-breakpoint`. Sem ele, o arquivo inteiro vai como uma query só e o MySQL rejeita com `ER_PARSE_ERROR`, porque múltiplos statements por query são desabilitados por padrão. Migrações escritas à mão precisam do marcador entre cada statement — as de 0025 a 0030 foram criadas sem ele e só falharam quando alguém aplicou a partir do zero.
 
+**Não rode `pnpm db:push` contra o banco de produção sem ler isto.** O Drizzle identifica cada migração pelo hash do conteúdo do arquivo. As migrações 0025 a 0030 foram corrigidas depois de já terem sido aplicadas em produção, então o hash dos arquivos mudou. Rodar a migração contra aquele banco faz o Drizzle enxergar as cinco como novas e tentar aplicá-las de novo, falhando com `Duplicate column name`. Antes de migrar produção, compare as linhas de `__drizzle_migrations` com os hashes atuais e atualize as cinco, ou aplique as alterações pendentes à mão.
+
+## Deploy
+
+Produção roda na **Railway**, projeto `zonal-elegance`, serviço `gestao_temporada`, em https://www.gestor.gpscontabil.com.br — com um MySQL gerenciado no mesmo projeto. **O deploy é automático a cada push na `main`**: a Railway constrói com `pnpm run build` e sobe com `pnpm start`. Não há etapa de migração no deploy, então mudanças de schema precisam ser aplicadas separadamente.
+
+Ou seja, todo push publica. Não existe ambiente de homologação.
+
 ## Arquitetura
 
 ```

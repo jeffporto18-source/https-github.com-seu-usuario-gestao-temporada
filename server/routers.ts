@@ -1636,6 +1636,36 @@ export const appRouter = router({
 
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
+        // Vigência dos contratos de longa duração: próximo reajuste (a cada 12 meses) e fim do contrato,
+        // mostrando eventos futuros ou vencidos há até 30 dias (para não deixar passar em branco).
+        const contratosLonga = await db.listLongTermContracts(ctx.user.id);
+        const propNome = (id: number) => props.find((p) => p.id === id)?.apelido ?? "—";
+        const hojeStr = hoje.toISOString().slice(0, 10);
+        const limiteAtrasoStr = (() => {
+          const d = new Date();
+          d.setDate(d.getDate() - 30);
+          return d.toISOString().slice(0, 10);
+        })();
+
+        const eventosContrato: { propertyId: number; imovel: string; tipo: "reajuste" | "fim"; data: string }[] = [];
+        for (const c of contratosLonga) {
+          const numReajustes = Math.floor(c.prazoMeses / 12);
+          for (let i = 1; i <= numReajustes; i++) {
+            const dataReajusteN = addMonthsToDate(c.dataInicio, 12 * i);
+            if (dataReajusteN >= limiteAtrasoStr) {
+              eventosContrato.push({ propertyId: c.propertyId, imovel: propNome(c.propertyId), tipo: "reajuste", data: dataReajusteN });
+            }
+          }
+          if (c.dataFim >= limiteAtrasoStr) {
+            eventosContrato.push({ propertyId: c.propertyId, imovel: propNome(c.propertyId), tipo: "fim", data: c.dataFim });
+          }
+        }
+        eventosContrato.sort((a, b) => a.data.localeCompare(b.data));
+        const vigenciaContratos = eventosContrato.slice(0, 6).map((e) => ({
+          ...e,
+          diasRestantes: Math.ceil((new Date(e.data).getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24)),
+        }));
+
         return {
           totalClientes: clientes.length,
           totalImoveis: props.length,
@@ -1643,6 +1673,7 @@ export const appRouter = router({
           receitaMes: round2(receitaMes),
           comissaoMes: round2(comissaoMes),
           alertasCertificado,
+          vigenciaContratos,
         };
       }),
   }),

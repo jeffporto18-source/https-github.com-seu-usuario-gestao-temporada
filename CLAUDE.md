@@ -25,7 +25,13 @@ No Windows, `pnpm dev` falha: o script usa o prefixo POSIX `NODE_ENV=development
 
 ## Ambiente
 
-Copie [.env.example](.env.example) para `.env`. Só `DATABASE_URL` e `JWT_SECRET` são realmente necessários para o app rodar — R2 e NFS-e falham apenas no momento em que são usados.
+Copie [.env.example](.env.example) para `.env`. São necessários `DATABASE_URL`, `JWT_SECRET` e `VITE_APP_ID` — R2 e NFS-e falham apenas no momento em que são usados.
+
+`VITE_APP_ID` não é opcional apesar do nome sugerir plataforma: `verifySession` em [server/_core/sdk.ts](server/_core/sdk.ts) exige `appId` não vazio no token. Com ele em branco o login responde 200 e grava o cookie, mas toda requisição seguinte volta anônima — a tela de login parece simplesmente não reagir.
+
+### Migrações
+
+`drizzle-kit migrate` separa os statements de cada `.sql` pelo marcador `--> statement-breakpoint`. Sem ele, o arquivo inteiro vai como uma query só e o MySQL rejeita com `ER_PARSE_ERROR`, porque múltiplos statements por query são desabilitados por padrão. Migrações escritas à mão precisam do marcador entre cada statement — as de 0025 a 0030 foram criadas sem ele e só falharam quando alguém aplicou a partir do zero.
 
 ## Arquitetura
 

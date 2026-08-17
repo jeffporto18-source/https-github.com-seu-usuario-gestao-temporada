@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, like } from "drizzle-orm";
+import { and, desc, eq, isNull, like, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -469,7 +469,10 @@ export async function getTenantAccess(userId: number, tenantOwnerId: number) {
   const usuario = await getUserById(userId);
   if (usuario?.role === "admin") {
     const dono = await getUserById(tenantOwnerId);
-    if (!dono || dono.invitedBy !== null) return null;
+    // Precisa recusar exatamente o que listTenants recusa — inclusive a própria conta do
+    // escritório. Se aqui liberasse e lá não, a seleção aceitaria uma empresa que a requisição
+    // seguinte recusaria, e a tela ficaria num laço sem explicação.
+    if (!dono || dono.invitedBy !== null || dono.role === "admin") return null;
     return { id: 0, userId, tenantOwnerId, nivel: "total" as const, createdAt: new Date() };
   }
 
@@ -517,7 +520,13 @@ export async function revokeTenantAccess(userId: number, tenantOwnerId: number) 
   await db.delete(tenantAccess).where(and(eq(tenantAccess.userId, userId), eq(tenantAccess.tenantOwnerId, tenantOwnerId)));
 }
 
-/** Empresas do sistema (contas donas) — usado pelo escritório contábil para conceder acesso. */
+/**
+ * Empresas clientes do sistema.
+ *
+ * Contas de escritório (`role = admin`) ficam de fora: o escritório não é um cliente, é quem
+ * atende os clientes. Sem essa exclusão ele apareceria na própria lista de empresas, junto com a
+ * carteira, e o contador teria de escolher entre operar "a si mesmo" ou um cliente de verdade.
+ */
 export async function listTenants() {
   const db = await requireDb();
   return db
@@ -530,7 +539,7 @@ export async function listTenants() {
       userType: users.userType,
     })
     .from(users)
-    .where(isNull(users.invitedBy))
+    .where(and(isNull(users.invitedBy), ne(users.role, "admin")))
     .orderBy(users.razaoSocial);
 }
 

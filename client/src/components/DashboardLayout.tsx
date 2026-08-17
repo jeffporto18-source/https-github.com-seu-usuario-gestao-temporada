@@ -160,7 +160,14 @@ function DashboardLayoutContent({
       window.location.reload();
     },
   });
-  const menuItems = getMenuItems(user?.userType, empresaAtual?.nivel, !user?.invitedBy, user?.role === "admin");
+  // O menu reflete a EMPRESA aberta, não o perfil de quem entrou: um contador holding operando um
+  // cliente administradora precisa ver Clientes e Repasse, telas que o perfil dele esconderia.
+  const menuItems = getMenuItems(
+    empresaAtual?.userType ?? user?.userType,
+    empresaAtual?.nivel,
+    !user?.invitedBy,
+    user?.role === "admin",
+  );
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
 

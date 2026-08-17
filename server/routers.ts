@@ -346,13 +346,20 @@ export const appRouter = router({
         return { success: true, nivel: acesso.nivel };
       }),
 
-    /** Empresa em operação agora — alimenta o seletor no topo das telas. */
+    /**
+     * Empresa em operação agora — alimenta o seletor no topo e o filtro do menu lateral.
+     *
+     * `userType` vem daqui, da empresa, e não do usuário logado: o menu precisa refletir o que
+     * ESTA empresa usa. Um contador holding abrindo um cliente administradora tem de ver Clientes
+     * e Repasse ao Proprietário, telas que o perfil dele esconderia.
+     */
     atual: empresaProcedure.query(async ({ ctx }) => {
       const dono = await db.getUserById(ctx.ownerId);
       return {
         id: ctx.ownerId,
         nome: dono?.razaoSocial || dono?.nomeResponsavel || dono?.name || dono?.email || `Empresa ${ctx.ownerId}`,
         nivel: ctx.nivel,
+        userType: dono?.userType ?? null,
       };
     }),
   }),

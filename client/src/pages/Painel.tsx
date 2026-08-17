@@ -27,7 +27,8 @@ export default function Painel() {
   const { data, isLoading } = trpc.dashboard.overview.useQuery({ competencia });
   const { data: empresa } = trpc.empresas.atual.useQuery(undefined, { retry: false });
   const meses = competencias();
-  const layout = DASHBOARD_LAYOUT[user?.userType || ""] ?? DEFAULT_LAYOUT;
+  // Mesma regra do menu: os cards seguem o perfil da EMPRESA aberta, não o de quem entrou.
+  const layout = DASHBOARD_LAYOUT[empresa?.userType || user?.userType || ""] ?? DEFAULT_LAYOUT;
   const statCount = 2 + (layout.showClientes ? 1 : 0) + (layout.showReservasMes ? 1 : 0);
 
   return (

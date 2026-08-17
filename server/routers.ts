@@ -266,14 +266,23 @@ export const appRouter = router({
       }),
   }),
 
-  // ------------------------------------------------------------- team (gerenciamento de usuários)
-  // Apenas donos do sistema (invitedBy = null) podem gerenciar usuários
+  // ------------------------------------------------------------- team (usuários da empresa)
+  /**
+   * Usuários da EMPRESA EM OPERAÇÃO, não do usuário logado.
+   *
+   * Antes esta tela criava o funcionário sob a conta de quem estava logado. Quando o escritório
+   * operava um cliente e cadastrava alguém, o funcionário nascia ligado à empresa do escritório —
+   * que está vazia — e entrava num sistema sem nada, sem que ninguém entendesse por quê.
+   *
+   * Só quem tem nível total na empresa pode gerenciar seus usuários: dar acesso a mais alguém é
+   * decisão de quem responde pela empresa, não de quem apenas opera o dia a dia dela.
+   */
   team: router({
-    list: protectedProcedure.query(({ ctx }) => {
-      if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode gerenciar usuários.");
-      return db.listTeamUsers(ctx.user.id);
+    list: empresaProcedure.query(({ ctx }) => {
+      if (ctx.nivel !== "total") throw new Error("Seu acesso nesta empresa não permite gerenciar usuários.");
+      return db.listTeamUsers(ctx.ownerId);
     }),
-    create: protectedProcedure
+    create: escritaProcedure
       .input(
         z.object({
           name: z.string().min(1),
@@ -284,9 +293,9 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode adicionar usuários.");
+        if (ctx.nivel !== "total") throw new Error("Seu acesso nesta empresa não permite adicionar usuários.");
         await db.createTeamUser({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           name: input.name,
           email: input.email,
           password: input.password,
@@ -296,30 +305,30 @@ export const appRouter = router({
         return { success: true };
       }),
     /** Redefine a senha de um funcionário — o caminho para quem esqueceu a dele. */
-    redefinirSenha: protectedProcedure
+    redefinirSenha: escritaProcedure
       .input(z.object({ userId: z.number(), novaSenha: z.string().min(6) }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode redefinir senhas.");
+        if (ctx.nivel !== "total") throw new Error("Seu acesso nesta empresa não permite redefinir senhas.");
         const alvo = await db.getUserById(input.userId);
-        if (!alvo || alvo.invitedBy !== ctx.user.id) throw new Error("Usuário não encontrado na sua equipe.");
+        if (!alvo || alvo.invitedBy !== ctx.ownerId) throw new Error("Usuário não encontrado nesta empresa.");
         await db.setUserPassword(input.userId, input.novaSenha);
         return { success: true };
       }),
     /** Muda o alcance de um funcionário já cadastrado, sem recriá-lo. */
-    alterarNivel: protectedProcedure
+    alterarNivel: escritaProcedure
       .input(z.object({ userId: z.number(), nivel: z.enum(NIVEIS_ACESSO) }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode alterar acessos.");
+        if (ctx.nivel !== "total") throw new Error("Seu acesso nesta empresa não permite alterar acessos.");
         const alvo = await db.getUserById(input.userId);
-        if (!alvo || alvo.invitedBy !== ctx.user.id) throw new Error("Usuário não encontrado na sua equipe.");
-        await db.grantTenantAccess({ userId: input.userId, tenantOwnerId: ctx.user.id, nivel: input.nivel });
+        if (!alvo || alvo.invitedBy !== ctx.ownerId) throw new Error("Usuário não encontrado nesta empresa.");
+        await db.grantTenantAccess({ userId: input.userId, tenantOwnerId: ctx.ownerId, nivel: input.nivel });
         return { success: true };
       }),
-    delete: protectedProcedure
+    delete: escritaProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode remover usuários.");
-        await db.deleteTeamUser(ctx.user.id, input.id);
+        if (ctx.nivel !== "total") throw new Error("Seu acesso nesta empresa não permite remover usuários.");
+        await db.deleteTeamUser(ctx.ownerId, input.id);
         return { success: true };
       }),
   }),

@@ -44,8 +44,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (loading) return <DashboardLayoutSkeleton />;
   if (!isAuthenticated) return <Redirect to="/" />;
 
-  // Se o usuário está logado mas não completou o onboarding (escolha de perfil)
-  if (!user?.userType) {
+  // A escolha de perfil descreve a EMPRESA (holding, administradora, gestor). Só quem está criando
+  // a própria empresa responde isso — um funcionário convidado herda a empresa de quem o convidou,
+  // e perguntar a ele fazia com que marcasse um perfil qualquer, que depois valia como se fosse da
+  // empresa dele.
+  if (!user?.userType && !user?.invitedBy) {
     return <Redirect to="/onboarding" />;
   }
 
@@ -61,7 +64,8 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
 
   if (loading) return <DashboardLayoutSkeleton />;
   if (isAuthenticated) {
-    if (!user?.userType) return <Redirect to="/onboarding" />;
+    // Mesma regra do RequireAuth: convidado não escolhe perfil de empresa.
+    if (!user?.userType && !user?.invitedBy) return <Redirect to="/onboarding" />;
     return <Redirect to="/painel" />;
   }
 

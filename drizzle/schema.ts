@@ -11,7 +11,7 @@ export const users = mysqlTable("users", {
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   /** Tipo de usuário: administradora de aluguel, administrador airbnb, proprietário, holding ou gestor de temporada PJ */
-  userType: mysqlEnum("userType", ["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj"]),
+  userType: mysqlEnum("userType", ["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj", "escritorio_contabil"]),
   /** Categoria fiscal: PJ, PF com CBS/IBS (obrigado a emitir nota) ou PF isento */
   fiscalCategory: mysqlEnum("fiscalCategory", ["pj", "pf_cbs_ibs", "pf_isento"]),
   /** Tipo de cadastro: pessoa jurídica ou pessoa física */

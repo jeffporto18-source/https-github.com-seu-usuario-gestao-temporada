@@ -246,6 +246,13 @@
       "when": 1786830181121,
       "tag": "0034_add_tenant_access",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1786830241121,
+      "tag": "0035_add_perfil_escritorio_contabil",
+      "breakpoints": true
     }
   ]
 }

@@ -189,7 +189,7 @@ export const appRouter = router({
     save: protectedProcedure
       .input(
         z.object({
-          userType: z.enum(["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj"]),
+          userType: z.enum(["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj", "escritorio_contabil"]),
         }),
       )
       .mutation(async ({ ctx, input }) => {

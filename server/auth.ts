@@ -19,7 +19,7 @@ export function registerAuthRoutes(app: Express) {
     try {
       const { tipoCadastro, userType, email, password, razaoSocial, cnpj, nomeResponsavel, cpfResponsavel, name, telefone } = req.body;
 
-      const VALID_USER_TYPES = ["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj"];
+      const VALID_USER_TYPES = ["administradora", "admin_airbnb", "proprietario", "holding", "gestor_temporada_pj", "escritorio_contabil"];
 
       if (!email || !password) {
         res.status(400).json({ error: "E-mail e senha são obrigatórios." });

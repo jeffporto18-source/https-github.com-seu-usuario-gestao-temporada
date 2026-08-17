@@ -1,8 +1,23 @@
-import { Building2, User, Users, Landmark, UserCog2 } from "lucide-react";
+import { Building2, User, Users, Landmark, UserCog2, Briefcase } from "lucide-react";
 
-export type UserType = "administradora" | "admin_airbnb" | "proprietario" | "holding" | "gestor_temporada_pj";
+export type UserType =
+  | "administradora"
+  | "admin_airbnb"
+  | "proprietario"
+  | "holding"
+  | "gestor_temporada_pj"
+  | "escritorio_contabil";
 
 export const USER_TYPES: { value: UserType; label: string; desc: string; icon: typeof Building2 }[] = [
+  {
+    // O escritório não gere imóveis próprios: ele atende as empresas dos clientes. Por isso vem
+    // primeiro na lista e não aparece como opção no cadastro público — quem se cadastra sozinho
+    // está criando uma empresa, não um escritório.
+    value: "escritorio_contabil",
+    label: "Escritório Contábil",
+    desc: "Atende as empresas dos clientes; não administra imóveis próprios.",
+    icon: Briefcase,
+  },
   {
     value: "holding",
     label: "Holding",
@@ -35,7 +50,13 @@ export const USER_TYPES: { value: UserType; label: string; desc: string; icon: t
   },
 ];
 
-/** Perfis disponíveis para cada tipo de cadastro (PJ ou PF). */
+/**
+ * Perfis oferecidos no cadastro público.
+ *
+ * `escritorio_contabil` fica de fora de propósito: quem se cadastra sozinho está criando a
+ * empresa dele, não um escritório que atende terceiros. Esse perfil é atribuído junto com o
+ * `role = admin`, que é o que de fato dá acesso às empresas clientes.
+ */
 export const USER_TYPES_BY_TIPO_CADASTRO: Record<"pj" | "pf", UserType[]> = {
   pj: ["holding", "administradora", "gestor_temporada_pj"],
   pf: ["proprietario", "admin_airbnb"],

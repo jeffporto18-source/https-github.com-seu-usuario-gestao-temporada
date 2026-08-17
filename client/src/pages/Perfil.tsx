@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Loader2, Save, Building2, User, Phone } from "lucide-react";
+import { Loader2, Save, Building2, User, Phone, KeyRound } from "lucide-react";
 import { isValidCpf, isValidCnpj, formatPhone } from "@shared/validators";
 
 function formatCnpj(value: string) {
@@ -210,6 +210,73 @@ export default function Perfil() {
           </Button>
         </div>
       </form>
+
+      <TrocarSenha />
     </div>
+  );
+}
+
+/** Troca da própria senha. Exige a atual, para uma sessão esquecida aberta não virar sequestro. */
+function TrocarSenha() {
+  const [senhaAtual, setSenhaAtual] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmar, setConfirmar] = useState("");
+
+  const alterar = trpc.senha.alterar.useMutation({
+    onSuccess: () => {
+      toast.success("Senha alterada. Use a nova no próximo acesso.");
+      setSenhaAtual("");
+      setNovaSenha("");
+      setConfirmar("");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    if (novaSenha.length < 6) {
+      toast.error("A nova senha deve ter no mínimo 6 caracteres.");
+      return;
+    }
+    if (novaSenha !== confirmar) {
+      toast.error("A confirmação não confere com a nova senha.");
+      return;
+    }
+    alterar.mutate({ senhaAtual, novaSenha });
+  }
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <KeyRound className="h-4 w-4" /> Alterar senha
+        </CardTitle>
+        <CardDescription>
+          Use uma senha exclusiva deste sistema, não uma compartilhada com outros acessos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={enviar} className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="senhaAtual">Senha atual</Label>
+            <Input id="senhaAtual" type="password" value={senhaAtual} onChange={(e) => setSenhaAtual(e.target.value)} required />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="novaSenha">Nova senha</Label>
+            <Input id="novaSenha" type="password" value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} placeholder="Mín. 6 caracteres" required minLength={6} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="confirmarSenha">Confirmar</Label>
+            <Input id="confirmarSenha" type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} required />
+          </div>
+          <div className="sm:col-span-3 flex justify-end">
+            <Button type="submit" size="sm" disabled={alterar.isPending}>
+              {alterar.isPending && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
+              Alterar senha
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

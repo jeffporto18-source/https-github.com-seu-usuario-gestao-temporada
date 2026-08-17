@@ -378,6 +378,31 @@ export async function createTeamUser(data: {
   });
 }
 
+/**
+ * Troca a senha de um usuário.
+ *
+ * O sistema não envia e-mail, então não há "esqueci minha senha" por link: quem redefine é o
+ * responsável — o dono da empresa pelo funcionário dele, o escritório pelo dono da empresa. Isso
+ * cobre todos os casos reais sem depender de provedor de e-mail, e evita que um cliente fique
+ * travado esperando alguém mexer no banco.
+ */
+export async function setUserPassword(userId: number, novaSenha: string) {
+  const db = await requireDb();
+  const bcrypt = await import("bcryptjs");
+  const passwordHash = await bcrypt.hash(novaSenha, 12);
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+}
+
+/** Confere a senha atual — exigida para o usuário trocar a própria senha. */
+export async function checkUserPassword(userId: number, senha: string) {
+  const db = await requireDb();
+  const bcrypt = await import("bcryptjs");
+  const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  const hash = rows[0]?.passwordHash;
+  if (!hash) return false;
+  return bcrypt.compare(senha, hash);
+}
+
 export async function deleteTeamUser(ownerId: number, userId: number) {
   const db = await requireDb();
   await db.delete(users).where(and(eq(users.id, userId), eq(users.invitedBy, ownerId)));

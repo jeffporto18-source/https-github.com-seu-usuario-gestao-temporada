@@ -55,6 +55,30 @@ client/src/pages/       uma página por rota; 27 rotas em App.tsx
 client/src/components/DashboardLayout.tsx   menu lateral (array NAV_ITEMS no topo)
 ```
 
+### Multiempresa — leia antes de escrever qualquer rota
+
+**"Usuário logado" e "empresa dos dados" são coisas diferentes.** O sistema atende várias empresas de terceiros; cada uma é uma conta dona (`users.invitedBy = null`) e os dados pertencem a ela pelo `ownerId`. Quem pode operar qual empresa está em `tenant_access`, com um nível (`total`, `operacional`, `consulta`).
+
+Toda rota de dados usa **`ctx.ownerId`**, nunca `ctx.user.id`. Confundir os dois faz a consulta procurar dados sob o id da pessoa em vez do id da empresa — foi o que fazia o funcionário convidado entrar num sistema vazio, e é o que vazaria dados entre clientes se invertido.
+
+As procedures estão em [server/tenant.ts](server/tenant.ts):
+
+| Procedure | Para quê |
+|---|---|
+| `empresaProcedure` | leitura de dados da empresa; qualquer nível |
+| `escritaProcedure` | mutações; barra o nível `consulta` |
+| `financeiroProcedure` | DRE, repasse, comissão, informes; exige nível `total` |
+
+`protectedProcedure` só continua correto em `auth`, `onboarding`, `profile`, `team`, `senha`, `empresas` e `escritorio` — rotas que agem sobre o usuário logado, não sobre dados de empresa.
+
+A empresa em operação vem de um cookie que **apenas indica a escolha**: `escolherAcesso` revalida contra `tenant_access` a cada requisição, e um cookie com o id de outra empresa é descartado. [server/tenant.test.ts](server/tenant.test.ts) cobre isso e varre as rotas — ele **quebra de propósito** se uma rota nova usar `ctx.user.id` como escopo. Se esse teste falhar, leia o que ele aponta antes de mexer nele.
+
+O painel é exceção deliberada: em vez de negar acesso a quem não tem nível total, ele omite os números financeiros do retorno — é a porta de entrada de qualquer nível.
+
+### Senha
+
+Não há envio de e-mail no sistema, então não existe "esqueci minha senha" por link. Quem redefine é o responsável: o dono da empresa redefine a do funcionário (tela Usuários), o escritório redefine a do dono (tela Escritório), e cada um troca a própria no Perfil. Construir recuperação por e-mail exigiria contratar um provedor.
+
 ### Convenções
 
 - **Idioma**: schema, rotas tRPC e nomes de arquivo em português; o código de infra em `_core/` é inglês. Mensagens de commit em português.

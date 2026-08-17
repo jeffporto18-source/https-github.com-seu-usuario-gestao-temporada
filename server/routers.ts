@@ -247,6 +247,20 @@ export const appRouter = router({
       }),
   }),
 
+  // ------------------------------------------------------- senha do próprio usuário
+  senha: router({
+    /** Troca a própria senha. Exige a atual, para uma sessão aberta esquecida não virar sequestro. */
+    alterar: protectedProcedure
+      .input(z.object({ senhaAtual: z.string().min(1), novaSenha: z.string().min(6) }))
+      .mutation(async ({ ctx, input }) => {
+        const confere = await db.checkUserPassword(ctx.user.id, input.senhaAtual);
+        if (!confere) throw new Error("A senha atual está incorreta.");
+        if (input.senhaAtual === input.novaSenha) throw new Error("A nova senha precisa ser diferente da atual.");
+        await db.setUserPassword(ctx.user.id, input.novaSenha);
+        return { success: true };
+      }),
+  }),
+
   // ------------------------------------------------------------- team (gerenciamento de usuários)
   // Apenas donos do sistema (invitedBy = null) podem gerenciar usuários
   team: router({
@@ -274,6 +288,16 @@ export const appRouter = router({
           telefone: input.telefone,
           nivel: input.nivel,
         });
+        return { success: true };
+      }),
+    /** Redefine a senha de um funcionário — o caminho para quem esqueceu a dele. */
+    redefinirSenha: protectedProcedure
+      .input(z.object({ userId: z.number(), novaSenha: z.string().min(6) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode redefinir senhas.");
+        const alvo = await db.getUserById(input.userId);
+        if (!alvo || alvo.invitedBy !== ctx.user.id) throw new Error("Usuário não encontrado na sua equipe.");
+        await db.setUserPassword(input.userId, input.novaSenha);
         return { success: true };
       }),
     /** Muda o alcance de um funcionário já cadastrado, sem recriá-lo. */
@@ -378,6 +402,21 @@ export const appRouter = router({
           }
         }
         await db.grantTenantAccess({ userId: input.userId, tenantOwnerId: input.empresaId, nivel: input.nivel });
+        return { success: true };
+      }),
+
+    /**
+     * Redefine a senha do dono de uma empresa cliente.
+     *
+     * É o que resolve o cliente que esqueceu a senha: hoje isso exigiria alterar o banco à mão,
+     * e cada ocorrência custaria uma intervenção técnica.
+     */
+    redefinirSenhaDaEmpresa: adminProcedure
+      .input(z.object({ empresaId: z.number(), novaSenha: z.string().min(6) }))
+      .mutation(async ({ input }) => {
+        const dono = await db.getUserById(input.empresaId);
+        if (!dono || dono.invitedBy !== null) throw new Error("Empresa não encontrada.");
+        await db.setUserPassword(input.empresaId, input.novaSenha);
         return { success: true };
       }),
 

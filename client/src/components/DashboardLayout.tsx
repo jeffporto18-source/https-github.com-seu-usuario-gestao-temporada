@@ -324,17 +324,19 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        {/* O seletor só aparece para quem atende mais de uma empresa — para os demais seria uma
-            caixa com uma opção só, e a barra some por completo. */}
+        {/* Quem atende várias empresas precisa saber onde está ANTES de lançar qualquer coisa: um
+            lançamento na empresa errada só aparece semanas depois, na conciliação. Por isso a
+            barra é destacada, e não um detalhe discreto. Para quem atende uma empresa só ela não
+            faz sentido e some por completo. */}
         {(minhasEmpresas?.length ?? 0) > 1 && empresaAtual && (
-          <div className="flex items-center gap-2 border-b border-border bg-secondary/30 px-4 py-1.5">
-            <Landmark className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="text-[11px] text-muted-foreground">Operando</span>
+          <div className="flex items-center gap-2.5 border-b-2 border-primary/30 bg-primary/5 px-4 py-2">
+            <Landmark className="h-4 w-4 shrink-0 text-primary" />
+            <span className="text-xs font-medium text-muted-foreground">Você está operando</span>
             <Select
               value={String(empresaAtual.id)}
               onValueChange={(v) => trocarEmpresa.mutate({ empresaId: Number(v) })}
             >
-              <SelectTrigger className="h-7 w-auto min-w-[200px] border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
+              <SelectTrigger className="h-8 w-auto min-w-[240px] border border-primary/30 bg-background px-2.5 text-sm font-semibold text-primary shadow-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -345,6 +347,9 @@ function DashboardLayoutContent({
                 ))}
               </SelectContent>
             </Select>
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              — troque aqui para ver outra empresa
+            </span>
             {empresaAtual.nivel !== "total" && (
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
                 {NIVEL_ROTULO[empresaAtual.nivel] ?? empresaAtual.nivel}

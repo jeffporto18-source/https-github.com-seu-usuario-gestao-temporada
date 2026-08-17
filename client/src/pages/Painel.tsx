@@ -25,6 +25,7 @@ export default function Painel() {
   const { user } = useAuth();
   const [competencia, setCompetencia] = useState<string>(competenciaAtual());
   const { data, isLoading } = trpc.dashboard.overview.useQuery({ competencia });
+  const { data: empresa } = trpc.empresas.atual.useQuery(undefined, { retry: false });
   const meses = competencias();
   const layout = DASHBOARD_LAYOUT[user?.userType || ""] ?? DEFAULT_LAYOUT;
   const statCount = 2 + (layout.showClientes ? 1 : 0) + (layout.showReservasMes ? 1 : 0);
@@ -32,8 +33,15 @@ export default function Painel() {
   return (
     <div className="max-w-6xl mx-auto">
       <PageHeader
-        title={`Bem-vindo, ${user?.name?.split(" ")[0] ?? "Administrador"}`}
-        subtitle="Visão geral da sua carteira de imóveis e da operação do mês."
+        // O título mostra a EMPRESA, não o usuário: quem atende várias precisa saber onde está
+        // antes de lançar qualquer coisa. Cumprimentar pelo nome de quem entrou fazia parecer que
+        // os dados eram da conta dele, quando são do cliente que ele está operando.
+        title={empresa?.nome ?? `Bem-vindo, ${user?.name?.split(" ")[0] ?? "Administrador"}`}
+        subtitle={
+          empresa
+            ? `Visão geral desta empresa e da operação do mês. Você está operando como ${user?.name ?? "usuário"}.`
+            : "Visão geral da sua carteira de imóveis e da operação do mês."
+        }
         action={
           <Select value={competencia} onValueChange={setCompetencia}>
             <SelectTrigger className="w-[160px] bg-card"><SelectValue /></SelectTrigger>

@@ -327,16 +327,22 @@ function DashboardLayoutContent({
         {/* Quem atende várias empresas precisa saber onde está ANTES de lançar qualquer coisa: um
             lançamento na empresa errada só aparece semanas depois, na conciliação. Por isso a
             barra é destacada, e não um detalhe discreto. Para quem atende uma empresa só ela não
-            faz sentido e some por completo. */}
+            faz sentido e some por completo.
+
+            Âmbar, não vermelho: vermelho significa erro no resto do sistema, e gastá-lo num estado
+            normal faria o usuário parar de reagir a ele quando houvesse erro de verdade. Âmbar diz
+            "preste atenção" sem dizer "algo deu errado". */}
         {(minhasEmpresas?.length ?? 0) > 1 && empresaAtual && (
-          <div className="flex items-center gap-2.5 border-b-2 border-primary/30 bg-primary/5 px-4 py-2">
-            <Landmark className="h-4 w-4 shrink-0 text-primary" />
-            <span className="text-xs font-medium text-muted-foreground">Você está operando</span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b-4 border-amber-500 bg-amber-100 px-4 py-2.5 dark:bg-amber-950/60">
+            <Landmark className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
+            <span className="text-sm font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+              Você está operando
+            </span>
             <Select
               value={String(empresaAtual.id)}
               onValueChange={(v) => trocarEmpresa.mutate({ empresaId: Number(v) })}
             >
-              <SelectTrigger className="h-8 w-auto min-w-[240px] border border-primary/30 bg-background px-2.5 text-sm font-semibold text-primary shadow-none">
+              <SelectTrigger className="h-9 w-auto min-w-[280px] border-2 border-amber-600 bg-white px-3 text-base font-bold text-amber-950 shadow-sm dark:bg-amber-900 dark:text-amber-50">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -347,11 +353,11 @@ function DashboardLayoutContent({
                 ))}
               </SelectContent>
             </Select>
-            <span className="hidden text-[11px] text-muted-foreground sm:inline">
-              — troque aqui para ver outra empresa
+            <span className="hidden text-xs text-amber-800 dark:text-amber-300 sm:inline">
+              troque aqui para ver outra empresa
             </span>
             {empresaAtual.nivel !== "total" && (
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+              <span className="rounded border border-amber-700 bg-amber-200 px-2 py-0.5 text-xs font-bold uppercase text-amber-900 dark:bg-amber-800 dark:text-amber-100">
                 {NIVEL_ROTULO[empresaAtual.nivel] ?? empresaAtual.nivel}
               </span>
             )}

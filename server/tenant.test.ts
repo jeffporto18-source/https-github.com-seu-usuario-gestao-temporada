@@ -47,6 +47,16 @@ describe("escolherAcesso", () => {
     const r = escolherAcesso([acesso(5, "total"), acesso(9, "consulta")], "9");
     expect(r.ok && r.acesso.nivel).toBe("consulta");
   });
+
+  // O escritório contábil recebe a lista de todas as empresas (regra em listTenantAccess), e a
+  // partir daí segue exatamente pelo mesmo caminho de qualquer outro usuário — inclusive tendo de
+  // escolher qual operar. Não há atalho que pule a decisão.
+  it("faz o escritório escolher a empresa como qualquer outro usuário", () => {
+    const carteira = [acesso(1), acesso(722), acesso(733), acesso(1733)];
+    expect(escolherAcesso(carteira, undefined)).toEqual({ ok: false, motivo: "precisa_escolher" });
+    expect(escolherAcesso(carteira, "733")).toEqual({ ok: true, acesso: acesso(733) });
+    expect(escolherAcesso(carteira, "999")).toEqual({ ok: false, motivo: "precisa_escolher" });
+  });
 });
 
 /**

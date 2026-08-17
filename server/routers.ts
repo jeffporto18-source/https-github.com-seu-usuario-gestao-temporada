@@ -382,13 +382,15 @@ export const appRouter = router({
       );
     }),
 
-    /** Pessoas que podem receber acesso: o próprio admin e quem ele convidou para o escritório. */
+    /**
+     * Quem pode receber acesso: apenas os funcionários do escritório.
+     *
+     * O próprio admin não entra na lista porque já alcança todas as empresas — oferecer "conceder
+     * a você mesmo" seria um botão sem efeito.
+     */
     pessoas: adminProcedure.query(async ({ ctx }) => {
       const equipe = await db.listTeamUsers(ctx.user.id);
-      return [
-        { id: ctx.user.id, nome: ctx.user.name || ctx.user.email || "Você", email: ctx.user.email, ehVoce: true },
-        ...equipe.map((u) => ({ id: u.id, nome: u.name, email: u.email, ehVoce: false })),
-      ];
+      return equipe.map((u) => ({ id: u.id, nome: u.name, email: u.email, ehVoce: false }));
     }),
 
     conceder: adminProcedure

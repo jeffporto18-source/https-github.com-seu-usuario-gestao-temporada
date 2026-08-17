@@ -415,9 +415,31 @@ export async function getUserById(userId: number) {
 }
 
 // --------------------------------------------------------- acesso às empresas
-/** Empresas que o usuário pode operar, com o nome de cada uma para a tela de seleção. */
+/**
+ * Empresas que o usuário pode operar, com o nome de cada uma para a tela de seleção.
+ *
+ * O escritório contábil (`role = admin`) enxerga todas por definição: atender essas empresas é o
+ * trabalho dele, e exigir uma concessão por cliente só criaria uma etapa a ser esquecida quando
+ * entrasse cliente novo. Para os funcionários do escritório a concessão continua explícita — um
+ * deles pode atender só parte da carteira, e aí a escolha significa alguma coisa.
+ */
 export async function listTenantAccess(userId: number) {
   const db = await requireDb();
+
+  const usuario = await getUserById(userId);
+  if (usuario?.role === "admin") {
+    const empresas = await listTenants();
+    return empresas.map((e) => ({
+      tenantOwnerId: e.id,
+      nivel: "total" as const,
+      nome: e.razaoSocial,
+      nomeResponsavel: e.nomeResponsavel,
+      nomeUsuario: e.name,
+      email: e.email,
+      userType: e.userType,
+    }));
+  }
+
   return db
     .select({
       tenantOwnerId: tenantAccess.tenantOwnerId,
@@ -440,6 +462,17 @@ export async function listTenantAccess(userId: number) {
  */
 export async function getTenantAccess(userId: number, tenantOwnerId: number) {
   const db = await requireDb();
+
+  // Mesma regra do listTenantAccess: o escritório alcança qualquer empresa do sistema. As duas
+  // funções precisam concordar — se uma liberasse e a outra não, a seleção de empresa aceitaria
+  // uma escolha que a requisição seguinte recusaria.
+  const usuario = await getUserById(userId);
+  if (usuario?.role === "admin") {
+    const dono = await getUserById(tenantOwnerId);
+    if (!dono || dono.invitedBy !== null) return null;
+    return { id: 0, userId, tenantOwnerId, nivel: "total" as const, createdAt: new Date() };
+  }
+
   const rows = await db
     .select()
     .from(tenantAccess)

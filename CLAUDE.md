@@ -69,6 +69,8 @@ As procedures estão em [server/tenant.ts](server/tenant.ts):
 | `escritaProcedure` | mutações; barra o nível `consulta` |
 | `financeiroProcedure` | DRE, repasse, comissão, informes; exige nível `total` |
 
+**O escritório contábil (`users.role = 'admin'`) alcança todas as empresas**, sem precisar de linha em `tenant_access` — atender essas empresas é o trabalho dele, e exigir concessão por cliente só criaria uma etapa a ser esquecida quando entrasse cliente novo. `listTenantAccess` e `getTenantAccess` implementam essa regra e **precisam concordar**: se uma liberasse e a outra não, a seleção aceitaria uma empresa que a requisição seguinte recusaria. Para os funcionários do escritório a concessão continua explícita, empresa por empresa.
+
 `protectedProcedure` só continua correto em `auth`, `onboarding`, `profile`, `team`, `senha`, `empresas` e `escritorio` — rotas que agem sobre o usuário logado, não sobre dados de empresa.
 
 A empresa em operação vem de um cookie que **apenas indica a escolha**: `escolherAcesso` revalida contra `tenant_access` a cada requisição, e um cookie com o id de outra empresa é descartado. [server/tenant.test.ts](server/tenant.test.ts) cobre isso e varre as rotas — ele **quebra de propósito** se uma rota nova usar `ctx.user.id` como escopo. Se esse teste falhar, leia o que ele aponta antes de mexer nele.

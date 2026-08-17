@@ -51,10 +51,17 @@ export default function Escritorio() {
       />
 
       <Card className="mb-5 p-4">
-        <p className="text-sm font-medium">Conceder acesso a uma empresa</p>
+        <p className="text-sm font-medium">Liberar acesso para a sua equipe</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Escolha a pessoa e o nível; depois clique em <strong>Conceder</strong> na empresa desejada, abaixo.
+          Você já enxerga todas as empresas abaixo — é o escritório. Aqui você libera o acesso dos seus
+          funcionários, empresa por empresa, porque nem todos precisam atender a carteira inteira.
         </p>
+        {pessoas?.length === 0 && (
+          <p className="mt-2 rounded-md bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+            Você ainda não cadastrou ninguém na equipe. Cadastre em <strong>Usuários</strong> e essas pessoas
+            aparecerão aqui.
+          </p>
+        )}
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <div className="grid gap-1.5">
             <label className="text-[11px] text-muted-foreground">Pessoa</label>
@@ -113,11 +120,14 @@ export default function Escritorio() {
                   variant="outline"
                   className="h-8 shrink-0"
                   disabled={!pessoaSelecionada || conceder.isPending}
+                  // Um botão que não clica precisa dizer por quê; sem isto ele fica mudo e a tela
+                  // parece quebrada.
+                  title={pessoaSelecionada ? "Liberar esta empresa para a pessoa selecionada" : "Escolha antes uma pessoa da equipe, no topo da tela"}
                   onClick={() =>
                     conceder.mutate({ userId: Number(pessoaSelecionada), empresaId: e.id, nivel: nivelSelecionado })
                   }
                 >
-                  Conceder
+                  Liberar
                 </Button>
               </div>
 

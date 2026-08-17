@@ -66,7 +66,7 @@ describe("escopo das rotas", () => {
   // `escritorio` está aqui deliberadamente: ele não lê dados de empresa nenhuma — decide QUEM pode
   // acessar o quê, e para isso precisa saber quem é o contador logado e quem é da equipe dele. A
   // proteção dessas rotas é o adminProcedure, não o escopo por empresa.
-  const ROTAS_DO_USUARIO = ["auth", "onboarding", "profile", "team", "empresas", "escritorio"];
+  const ROTAS_DO_USUARIO = ["auth", "onboarding", "profile", "team", "empresas", "escritorio", "senha"];
 
   /** Mapeia cada linha ao sub-router em que está. */
   function routerDaLinha(): (string | null)[] {

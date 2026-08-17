@@ -75,15 +75,9 @@ export const tenantAccess = mysqlTable(
 export type TenantAccess = typeof tenantAccess.$inferSelect;
 export type InsertTenantAccess = typeof tenantAccess.$inferInsert;
 
-export const NIVEIS_ACESSO = ["total", "operacional", "consulta"] as const;
-export type NivelAcesso = (typeof NIVEIS_ACESSO)[number];
-
-/** Rótulos e descrições usados nas telas de cadastro e concessão de acesso. */
-export const NIVEL_ACESSO_INFO: Record<NivelAcesso, { label: string; descricao: string }> = {
-  total: { label: "Total", descricao: "Enxerga e altera tudo, inclusive DRE, repasse e comissão." },
-  operacional: { label: "Operacional", descricao: "Cadastra e edita o dia a dia, sem ver o resultado financeiro." },
-  consulta: { label: "Consulta", descricao: "Apenas visualiza; não altera nada." },
-};
+// Os níveis vivem em shared/niveis.ts, porque as telas também precisam deles.
+export { NIVEIS_ACESSO, NIVEL_ACESSO_INFO } from "../shared/niveis";
+export type { NivelAcesso } from "../shared/niveis";
 
 /**
  * Clientes proprietários dos imóveis (PF com CPF ou PJ com CNPJ).

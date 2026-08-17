@@ -327,7 +327,11 @@ export async function deleteInvoicesByReservation(ownerId: number, reservationId
 export async function listTeamUsers(ownerId: number) {
   const db = await requireDb();
   const rows = await db.select().from(users).where(eq(users.invitedBy, ownerId)).orderBy(desc(users.createdAt));
-  return rows.map(({ passwordHash, ...u }) => u);
+  // O nível mora em tenant_access, não no usuário: a mesma pessoa pode ter alcances diferentes em
+  // empresas diferentes. Aqui trazemos o nível dela nesta empresa.
+  const acessos = await db.select().from(tenantAccess).where(eq(tenantAccess.tenantOwnerId, ownerId));
+  const nivelPorUsuario = new Map(acessos.map((a) => [a.userId, a.nivel]));
+  return rows.map(({ passwordHash, ...u }) => ({ ...u, nivel: nivelPorUsuario.get(u.id) ?? null }));
 }
 
 export async function createTeamUser(data: {

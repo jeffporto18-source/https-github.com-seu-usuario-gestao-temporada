@@ -21,12 +21,15 @@ import {
 } from "@/components/ui/sidebar";
 
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Receipt, BookOpen, CalendarDays, FileText, BarChart3, Upload, UserCog, UsersRound, Landmark, UserCog2, FileSignature, Package, Wallet, TrendingUp, Truck, PieChart, ClipboardList, ScrollText, UserRound } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Building2, Receipt, BookOpen, CalendarDays, FileText, BarChart3, Upload, UserCog, UsersRound, Landmark, UserCog2, FileSignature, Package, Wallet, TrendingUp, Truck, PieChart, ClipboardList, ScrollText, UserRound, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { USER_TYPES } from "@/lib/userTypes";
+import { trpc } from "@/lib/trpc";
+import { NIVEL_ROTULO } from "./RequireEmpresa";
 
 const allMenuItems = [
   { icon: LayoutDashboard, label: "Painel", path: "/app", hideFor: [] as string[] },
@@ -42,19 +45,29 @@ const allMenuItems = [
   { icon: Truck, label: "Fornecedores", path: "/fornecedores", hideFor: [] as string[] },
   { icon: BookOpen, label: "Plano de Contas", path: "/plano-contas", hideFor: [] as string[] },
   { icon: Package, label: "Inventário", path: "/inventario", hideFor: [] as string[] },
-  { icon: BarChart3, label: "DRE por Unidade", path: "/dre", hideFor: [] as string[] },
-  { icon: PieChart, label: "DRE Empresa", path: "/dre-empresa", hideFor: [] as string[] },
-  { icon: ClipboardList, label: "EFD Contribuições", path: "/efd-contribuicoes", hideFor: [] as string[] },
-  { icon: ScrollText, label: "DIMOB", path: "/dimob", hideFor: [] as string[] },
-  { icon: FileText, label: "Informe de IR", path: "/informe-ir", hideFor: [] as string[] },
-  { icon: FileText, label: "Repasse ao Proprietário", path: "/repasse", hideFor: ["holding"] },
+  // `somenteTotal` esconde as telas de resultado financeiro de quem não tem acesso a elas. O
+  // servidor já recusa essas rotas por conta própria; esconder aqui evita oferecer ao usuário um
+  // caminho que terminaria em erro.
+  { icon: BarChart3, label: "DRE por Unidade", path: "/dre", hideFor: [] as string[], somenteTotal: true },
+  { icon: PieChart, label: "DRE Empresa", path: "/dre-empresa", hideFor: [] as string[], somenteTotal: true },
+  { icon: ClipboardList, label: "EFD Contribuições", path: "/efd-contribuicoes", hideFor: [] as string[], somenteTotal: true },
+  { icon: ScrollText, label: "DIMOB", path: "/dimob", hideFor: [] as string[], somenteTotal: true },
+  { icon: FileText, label: "Informe de IR", path: "/informe-ir", hideFor: [] as string[], somenteTotal: true },
+  { icon: FileText, label: "Repasse ao Proprietário", path: "/repasse", hideFor: ["holding"], somenteTotal: true },
   { icon: Upload, label: "Importar CSV", path: "/importar", hideFor: [] as string[] },
-  { icon: UsersRound, label: "Usuários", path: "/usuarios", hideFor: [] as string[] },
+  { icon: UsersRound, label: "Usuários", path: "/usuarios", hideFor: [] as string[], somenteDono: true },
+  { icon: ShieldCheck, label: "Escritório", path: "/escritorio", hideFor: [] as string[], somenteAdmin: true },
   { icon: UserRound, label: "Sócios", path: "/socios", hideFor: [] as string[] },
 ];
 
-function getMenuItems(userType?: string | null) {
-  return allMenuItems.filter(item => !item.hideFor.includes(userType || ""));
+function getMenuItems(userType?: string | null, nivel?: string | null, ehDono?: boolean, ehAdmin?: boolean) {
+  return allMenuItems.filter((item) => {
+    if (item.hideFor.includes(userType || "")) return false;
+    if (item.somenteTotal && nivel !== "total") return false;
+    if (item.somenteDono && !ehDono) return false;
+    if (item.somenteAdmin && !ehAdmin) return false;
+    return true;
+  });
 }
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -137,7 +150,17 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const menuItems = getMenuItems(user?.userType);
+  const utils = trpc.useUtils();
+  const { data: empresaAtual } = trpc.empresas.atual.useQuery(undefined, { retry: false });
+  const { data: minhasEmpresas } = trpc.empresas.minhas.useQuery();
+  // Trocar de empresa invalida tudo que está em cache: o que estava carregado é da anterior.
+  const trocarEmpresa = trpc.empresas.selecionar.useMutation({
+    onSuccess: () => {
+      utils.invalidate();
+      window.location.reload();
+    },
+  });
+  const menuItems = getMenuItems(user?.userType, empresaAtual?.nivel, !user?.invitedBy, user?.role === "admin");
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
 
@@ -299,6 +322,34 @@ function DashboardLayoutContent({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+        {/* O seletor só aparece para quem atende mais de uma empresa — para os demais seria uma
+            caixa com uma opção só, e a barra some por completo. */}
+        {(minhasEmpresas?.length ?? 0) > 1 && empresaAtual && (
+          <div className="flex items-center gap-2 border-b border-border bg-secondary/30 px-4 py-1.5">
+            <Landmark className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-[11px] text-muted-foreground">Operando</span>
+            <Select
+              value={String(empresaAtual.id)}
+              onValueChange={(v) => trocarEmpresa.mutate({ empresaId: Number(v) })}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-[200px] border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(minhasEmpresas ?? []).map((e) => (
+                  <SelectItem key={e.id} value={String(e.id)}>
+                    {e.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {empresaAtual.nivel !== "total" && (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                {NIVEL_ROTULO[empresaAtual.nivel] ?? empresaAtual.nivel}
+              </span>
+            )}
           </div>
         )}
         <main className="flex-1 p-4">{children}</main>

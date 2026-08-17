@@ -333,6 +333,66 @@ export const appRouter = router({
     }),
   }),
 
+  // ------------------------------------------- escritório contábil (multiempresa)
+  // Só quem tem role=admin opera aqui: é o papel de quem atende várias empresas de terceiros.
+  // Nenhum acesso é concedido automaticamente — cada concessão é um ato explícito e registrado,
+  // porque significa abrir os dados de um cliente para alguém de fora dele.
+  escritorio: router({
+    /** Todas as empresas do sistema, com quem já tem acesso a cada uma. */
+    empresas: adminProcedure.query(async () => {
+      const empresas = await db.listTenants();
+      return Promise.all(
+        empresas.map(async (e) => ({
+          id: e.id,
+          nome: e.razaoSocial || e.nomeResponsavel || e.name || e.email || `Empresa ${e.id}`,
+          email: e.email,
+          userType: e.userType,
+          acessos: (await db.listAccessOfTenant(e.id)).map((a) => ({
+            userId: a.userId,
+            nome: a.nome,
+            email: a.email,
+            nivel: a.nivel,
+            ehDonoDaEmpresa: a.ehDono === null,
+          })),
+        })),
+      );
+    }),
+
+    /** Pessoas que podem receber acesso: o próprio admin e quem ele convidou para o escritório. */
+    pessoas: adminProcedure.query(async ({ ctx }) => {
+      const equipe = await db.listTeamUsers(ctx.user.id);
+      return [
+        { id: ctx.user.id, nome: ctx.user.name || ctx.user.email || "Você", email: ctx.user.email, ehVoce: true },
+        ...equipe.map((u) => ({ id: u.id, nome: u.name, email: u.email, ehVoce: false })),
+      ];
+    }),
+
+    conceder: adminProcedure
+      .input(z.object({ userId: z.number(), empresaId: z.number(), nivel: z.enum(NIVEIS_ACESSO) }))
+      .mutation(async ({ ctx, input }) => {
+        // Só é possível conceder a si mesmo ou a alguém da própria equipe do escritório.
+        if (input.userId !== ctx.user.id) {
+          const pessoa = await db.getUserById(input.userId);
+          if (!pessoa || pessoa.invitedBy !== ctx.user.id) {
+            throw new Error("Só é possível conceder acesso a você ou à sua equipe.");
+          }
+        }
+        await db.grantTenantAccess({ userId: input.userId, tenantOwnerId: input.empresaId, nivel: input.nivel });
+        return { success: true };
+      }),
+
+    revogar: adminProcedure
+      .input(z.object({ userId: z.number(), empresaId: z.number() }))
+      .mutation(async ({ input }) => {
+        // Uma empresa não pode ficar sem dono: revogar o acesso do próprio dono a trancaria.
+        if (input.userId === input.empresaId) {
+          throw new Error("O dono da empresa não pode perder o acesso a ela.");
+        }
+        await db.revokeTenantAccess(input.userId, input.empresaId);
+        return { success: true };
+      }),
+  }),
+
   // ------------------------------------------------------------- clients
   clients: router({
     list: empresaProcedure.query(({ ctx }) => db.listClients(ctx.ownerId)),

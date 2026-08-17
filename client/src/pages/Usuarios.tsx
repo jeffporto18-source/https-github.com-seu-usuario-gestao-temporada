@@ -26,6 +26,8 @@ import {
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, Users, Mail, Phone, User } from "lucide-react";
 import { formatPhone } from "@shared/validators";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NIVEIS_ACESSO, NIVEL_ACESSO_INFO, type NivelAcesso } from "@shared/niveis";
 
 export default function Usuarios() {
   const { data: teamUsers, isLoading } = trpc.team.list.useQuery();
@@ -36,6 +38,7 @@ export default function Usuarios() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [telefone, setTelefone] = useState("");
+  const [nivel, setNivel] = useState<NivelAcesso>("operacional");
 
   const createMutation = trpc.team.create.useMutation({
     onSuccess: () => {
@@ -43,6 +46,14 @@ export default function Usuarios() {
       utils.team.list.invalidate();
       setDialogOpen(false);
       resetForm();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const alterarNivel = trpc.team.alterarNivel.useMutation({
+    onSuccess: () => {
+      toast.success("Nível de acesso atualizado.");
+      utils.team.list.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -60,6 +71,7 @@ export default function Usuarios() {
     setEmail("");
     setPassword("");
     setTelefone("");
+    setNivel("operacional");
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -77,6 +89,7 @@ export default function Usuarios() {
       email: email.trim(),
       password,
       telefone: telefone ? telefone.replace(/\D/g, "") : undefined,
+      nivel,
     });
   }
 
@@ -140,6 +153,18 @@ export default function Usuarios() {
                   required
                   minLength={6}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Nível de acesso</Label>
+                <Select value={nivel} onValueChange={(v) => setNivel(v as NivelAcesso)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {NIVEIS_ACESSO.map((n) => (
+                      <SelectItem key={n} value={n}>{NIVEL_ACESSO_INFO[n].label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{NIVEL_ACESSO_INFO[nivel].descricao}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="newTelefone">Telefone / WhatsApp (opcional)</Label>
@@ -211,6 +236,21 @@ export default function Usuarios() {
                   </div>
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={user.nivel ?? "total"}
+                    onValueChange={(v) => alterarNivel.mutate({ userId: user.id, nivel: v as NivelAcesso })}
+                  >
+                    <SelectTrigger className="h-8 w-[150px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NIVEIS_ACESSO.map((n) => (
+                        <SelectItem key={n} value={n}>{NIVEL_ACESSO_INFO[n].label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -235,6 +275,7 @@ export default function Usuarios() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                </div>
               </CardContent>
             </Card>
           ))}

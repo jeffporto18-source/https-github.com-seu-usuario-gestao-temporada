@@ -62,7 +62,11 @@ describe("escopo das rotas", () => {
   const linhas = fonte.split("\n");
 
   // Rotas que agem sobre o próprio usuário logado, e por isso continuam usando ctx.user.id.
-  const ROTAS_DO_USUARIO = ["auth", "onboarding", "profile", "team", "empresas"];
+  //
+  // `escritorio` está aqui deliberadamente: ele não lê dados de empresa nenhuma — decide QUEM pode
+  // acessar o quê, e para isso precisa saber quem é o contador logado e quem é da equipe dele. A
+  // proteção dessas rotas é o adminProcedure, não o escopo por empresa.
+  const ROTAS_DO_USUARIO = ["auth", "onboarding", "profile", "team", "empresas", "escritorio"];
 
   /** Mapeia cada linha ao sub-router em que está. */
   function routerDaLinha(): (string | null)[] {

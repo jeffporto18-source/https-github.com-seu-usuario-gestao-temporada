@@ -32,8 +32,10 @@ import ImportarCsv from "./pages/ImportarCsv";
 import Onboarding from "./pages/Onboarding";
 import Perfil from "./pages/Perfil";
 import Usuarios from "./pages/Usuarios";
+import Escritorio from "./pages/Escritorio";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { DashboardLayoutSkeleton } from "./components/DashboardLayoutSkeleton";
+import RequireEmpresa from "./components/RequireEmpresa";
 
 /** Redireciona para / (cadastro) se não autenticado, e para /onboarding se não escolheu perfil */
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -47,7 +49,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     return <Redirect to="/onboarding" />;
   }
 
-  return <>{children}</>;
+  // Toda tela de dados opera uma empresa específica. Quem atende mais de uma escolhe antes de
+  // entrar; sem isso o servidor recusaria as consultas, e a tela apareceria quebrada em vez de
+  // pedir a escolha.
+  return <RequireEmpresa>{children}</RequireEmpresa>;
 }
 
 /** Redireciona usuários já autenticados para o painel (evita ver tela de login/cadastro) */
@@ -188,6 +193,11 @@ function App() {
             <Route path="/informe-ir">
               <RequireAuth>
                 <DashboardLayout><InformeIr /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/escritorio">
+              <RequireAuth>
+                <DashboardLayout><Escritorio /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/repasse">

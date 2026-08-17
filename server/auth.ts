@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import type { Express, Request, Response } from "express";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { users } from "../drizzle/schema";
+import { users, tenantAccess } from "../drizzle/schema";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { nanoid } from "nanoid";
@@ -77,7 +77,7 @@ export function registerAuthRoutes(app: Express) {
         : (nomeResponsavel || name || '').trim();
 
       // Insert user
-      await db.insert(users).values({
+      const inserido = await db.insert(users).values({
         openId,
         name: displayName,
         email: email.toLowerCase().trim(),
@@ -92,6 +92,13 @@ export function registerAuthRoutes(app: Express) {
         telefone: telefone ? telefone.replace(/\D/g, '') : null,
         lastSignedIn: new Date(),
       });
+
+      // Quem se cadastra é dono da própria empresa, e é esta linha que lhe dá acesso a ela.
+      // Sem ela o usuário entraria num sistema ao qual não pertence a nenhuma empresa — o
+      // `ownerId` dos dados vem daqui, não do id do usuário logado.
+      const novoId = (inserido as unknown as { insertId: number }[])[0]?.insertId
+        ?? (inserido as unknown as { insertId: number }).insertId;
+      await db.insert(tenantAccess).values({ userId: novoId, tenantOwnerId: novoId, nivel: "total" });
 
       // Create session token
       const sessionToken = await sdk.createSessionToken(openId, {

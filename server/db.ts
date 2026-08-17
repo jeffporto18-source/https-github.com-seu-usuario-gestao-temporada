@@ -1,4 +1,4 @@
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, isNull, like } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -36,6 +36,9 @@ import {
   propertyCosts,
   InsertPropertyCost,
   PropertyCost,
+  tenantAccess,
+  InsertTenantAccess,
+  NivelAcesso,
   LongTermContract,
   CostResponsibility,
 } from "../drizzle/schema";
@@ -333,6 +336,7 @@ export async function createTeamUser(data: {
   email: string;
   password: string;
   telefone?: string | null;
+  nivel?: NivelAcesso;
 }) {
   const db = await requireDb();
   const bcrypt = await import("bcryptjs");
@@ -347,7 +351,7 @@ export async function createTeamUser(data: {
   const passwordHash = await bcrypt.hash(data.password, 12);
   const openId = `local_${nanoid(20)}`;
 
-  await db.insert(users).values({
+  const inserido = await db.insert(users).values({
     openId,
     name: data.name.trim(),
     email: data.email.toLowerCase().trim(),
@@ -356,6 +360,17 @@ export async function createTeamUser(data: {
     invitedBy: data.ownerId,
     telefone: data.telefone ? data.telefone.replace(/\D/g, "") : null,
     lastSignedIn: new Date(),
+  });
+
+  // O funcionário opera a empresa de quem o convidou — não uma empresa própria. Antes desta linha
+  // o convidado entrava e via um sistema vazio, porque as consultas procuravam dados sob o id
+  // dele. É aqui que ele passa a enxergar a empresa certa, com o nível escolhido no cadastro.
+  const novoId = (inserido as unknown as { insertId: number }[])[0]?.insertId
+    ?? (inserido as unknown as { insertId: number }).insertId;
+  await db.insert(tenantAccess).values({
+    userId: novoId,
+    tenantOwnerId: data.ownerId,
+    nivel: data.nivel ?? "total",
   });
 }
 
@@ -368,6 +383,93 @@ export async function getUserById(userId: number) {
   const db = await requireDb();
   const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   return rows[0] || null;
+}
+
+// --------------------------------------------------------- acesso às empresas
+/** Empresas que o usuário pode operar, com o nome de cada uma para a tela de seleção. */
+export async function listTenantAccess(userId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      tenantOwnerId: tenantAccess.tenantOwnerId,
+      nivel: tenantAccess.nivel,
+      nome: users.razaoSocial,
+      nomeResponsavel: users.nomeResponsavel,
+      nomeUsuario: users.name,
+      email: users.email,
+      userType: users.userType,
+    })
+    .from(tenantAccess)
+    .innerJoin(users, eq(users.id, tenantAccess.tenantOwnerId))
+    .where(eq(tenantAccess.userId, userId))
+    .orderBy(users.razaoSocial);
+}
+
+/**
+ * O acesso de um usuário a uma empresa — a única porta pela qual o `ownerId` efetivo passa.
+ * Sem linha aqui, não há acesso: é o que impede um cliente de enxergar os dados de outro.
+ */
+export async function getTenantAccess(userId: number, tenantOwnerId: number) {
+  const db = await requireDb();
+  const rows = await db
+    .select()
+    .from(tenantAccess)
+    .where(and(eq(tenantAccess.userId, userId), eq(tenantAccess.tenantOwnerId, tenantOwnerId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Todos os acessos concedidos numa empresa (para a tela de usuários da própria empresa). */
+export async function listAccessOfTenant(tenantOwnerId: number) {
+  const db = await requireDb();
+  return db
+    .select({
+      userId: tenantAccess.userId,
+      nivel: tenantAccess.nivel,
+      nome: users.name,
+      email: users.email,
+      telefone: users.telefone,
+      ehDono: users.invitedBy,
+    })
+    .from(tenantAccess)
+    .innerJoin(users, eq(users.id, tenantAccess.userId))
+    .where(eq(tenantAccess.tenantOwnerId, tenantOwnerId))
+    .orderBy(users.name);
+}
+
+export async function grantTenantAccess(data: InsertTenantAccess) {
+  const db = await requireDb();
+  const existente = await getTenantAccess(data.userId, data.tenantOwnerId);
+  if (existente) {
+    await db
+      .update(tenantAccess)
+      .set({ nivel: data.nivel })
+      .where(and(eq(tenantAccess.userId, data.userId), eq(tenantAccess.tenantOwnerId, data.tenantOwnerId)));
+    return;
+  }
+  await db.insert(tenantAccess).values(data);
+}
+
+export async function revokeTenantAccess(userId: number, tenantOwnerId: number) {
+  const db = await requireDb();
+  await db.delete(tenantAccess).where(and(eq(tenantAccess.userId, userId), eq(tenantAccess.tenantOwnerId, tenantOwnerId)));
+}
+
+/** Empresas do sistema (contas donas) — usado pelo escritório contábil para conceder acesso. */
+export async function listTenants() {
+  const db = await requireDb();
+  return db
+    .select({
+      id: users.id,
+      razaoSocial: users.razaoSocial,
+      nomeResponsavel: users.nomeResponsavel,
+      name: users.name,
+      email: users.email,
+      userType: users.userType,
+    })
+    .from(users)
+    .where(isNull(users.invitedBy))
+    .orderBy(users.razaoSocial);
 }
 
 // ------------------------------------------------------- plano de contas (chart accounts)

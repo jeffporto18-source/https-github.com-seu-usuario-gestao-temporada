@@ -1,11 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // Mocka a camada de banco para testar a lógica de consolidação da DRE isoladamente.
+// `listTenantAccess` entra aqui porque toda rota de dados passa pela resolução de empresa antes de
+// executar: sem um acesso, a requisição é recusada — que é justamente o comportamento desejado.
 vi.mock("./db", () => ({
   getProperty: vi.fn(),
   getClient: vi.fn(),
   listReservations: vi.fn(),
   listLedgerEntriesNaCompetencia: vi.fn(),
+  listContractRentChargesByProperty: vi.fn(async () => []),
+  listLongTermContracts: vi.fn(async () => []),
+  listTenantAccess: vi.fn(async () => [{ tenantOwnerId: 1, nivel: "total" }]),
 }));
 
 import * as db from "./db";

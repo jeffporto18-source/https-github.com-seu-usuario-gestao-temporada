@@ -4,6 +4,8 @@ import { and, eq } from "drizzle-orm";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router, adminProcedure } from "./_core/trpc";
+import { empresaProcedure, escritaProcedure, financeiroProcedure, TENANT_COOKIE } from "./tenant";
+import { NIVEIS_ACESSO } from "../drizzle/schema";
 import * as db from "./db";
 import { processarOperacao, emitirNfse, COD_LOCACAO, COD_INTERMEDIACAO } from "./fiscal";
 import { ENV } from "./_core/env";
@@ -259,6 +261,7 @@ export const appRouter = router({
           email: z.string().email(),
           password: z.string().min(6),
           telefone: z.string().optional(),
+          nivel: z.enum(NIVEIS_ACESSO).default("total"),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -269,7 +272,18 @@ export const appRouter = router({
           email: input.email,
           password: input.password,
           telefone: input.telefone,
+          nivel: input.nivel,
         });
+        return { success: true };
+      }),
+    /** Muda o alcance de um funcionário já cadastrado, sem recriá-lo. */
+    alterarNivel: protectedProcedure
+      .input(z.object({ userId: z.number(), nivel: z.enum(NIVEIS_ACESSO) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.invitedBy) throw new Error("Apenas o dono do sistema pode alterar acessos.");
+        const alvo = await db.getUserById(input.userId);
+        if (!alvo || alvo.invitedBy !== ctx.user.id) throw new Error("Usuário não encontrado na sua equipe.");
+        await db.grantTenantAccess({ userId: input.userId, tenantOwnerId: ctx.user.id, nivel: input.nivel });
         return { success: true };
       }),
     delete: protectedProcedure
@@ -281,11 +295,49 @@ export const appRouter = router({
       }),
   }),
 
+  // --------------------------------------------------- empresas do usuário
+  // Fica em protectedProcedure de propósito: é o que se usa ANTES de haver empresa escolhida.
+  empresas: router({
+    /** Empresas que o usuário logado pode operar. Uma só = entra direto; mais de uma = escolhe. */
+    minhas: protectedProcedure.query(async ({ ctx }) => {
+      const acessos = await db.listTenantAccess(ctx.user.id);
+      return acessos.map((a) => ({
+        id: a.tenantOwnerId,
+        nome: a.nome || a.nomeResponsavel || a.nomeUsuario || a.email || `Empresa ${a.tenantOwnerId}`,
+        userType: a.userType,
+        nivel: a.nivel,
+      }));
+    }),
+
+    /** Guarda a empresa escolhida no cookie. O acesso é reconferido aqui e a cada requisição. */
+    selecionar: protectedProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const acesso = await db.getTenantAccess(ctx.user.id, input.empresaId);
+        if (!acesso) throw new Error("Você não tem acesso a esta empresa.");
+        ctx.res.cookie(TENANT_COOKIE, String(input.empresaId), {
+          ...getSessionCookieOptions(ctx.req),
+          maxAge: 365 * 24 * 60 * 60 * 1000,
+        });
+        return { success: true, nivel: acesso.nivel };
+      }),
+
+    /** Empresa em operação agora — alimenta o seletor no topo das telas. */
+    atual: empresaProcedure.query(async ({ ctx }) => {
+      const dono = await db.getUserById(ctx.ownerId);
+      return {
+        id: ctx.ownerId,
+        nome: dono?.razaoSocial || dono?.nomeResponsavel || dono?.name || dono?.email || `Empresa ${ctx.ownerId}`,
+        nivel: ctx.nivel,
+      };
+    }),
+  }),
+
   // ------------------------------------------------------------- clients
   clients: router({
-    list: protectedProcedure.query(({ ctx }) => db.listClients(ctx.user.id)),
-    get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getClient(ctx.user.id, input.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.listClients(ctx.ownerId)),
+    get: empresaProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getClient(ctx.ownerId, input.id)),
+    create: escritaProcedure
       .input(
         z.object({
           tipo: z.enum(["PF", "PJ"]),
@@ -300,7 +352,7 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) =>
         db.createClient({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           tipo: input.tipo,
           nome: input.nome,
           cpfCnpj: input.cpfCnpj,
@@ -311,7 +363,7 @@ export const appRouter = router({
           certificadoA1Validade: input.certificadoA1Validade ? new Date(input.certificadoA1Validade) : null,
         }),
       ),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -327,19 +379,19 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) => {
         const { id, certificadoA1Validade, ...rest } = input;
-        return db.updateClient(ctx.user.id, id, {
+        return db.updateClient(ctx.ownerId, id, {
           ...rest,
           ...(certificadoA1Validade !== undefined ? { certificadoA1Validade: certificadoA1Validade ? new Date(certificadoA1Validade) : null } : {}),
         });
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteClient(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteClient(ctx.ownerId, input.id)),
   }),
 
   // ---------------------------------------------------------- properties
   properties: router({
-    list: protectedProcedure.query(({ ctx }) => db.listProperties(ctx.user.id)),
-    get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getProperty(ctx.user.id, input.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.listProperties(ctx.ownerId)),
+    get: empresaProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getProperty(ctx.ownerId, input.id)),
+    create: escritaProcedure
       .input(
         z.object({
           clientId: z.number().optional(),
@@ -359,7 +411,7 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) =>
         db.createProperty({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           clientId: input.clientId ?? null,
           apelido: input.apelido,
           endereco: input.endereco || null,
@@ -375,7 +427,7 @@ export const appRouter = router({
           socioId: input.socioId ?? null,
         }),
       ),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -396,20 +448,20 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) => {
         const { id, comissaoPct, custoFaxina, valorParcela, ...rest } = input;
-        return db.updateProperty(ctx.user.id, id, {
+        return db.updateProperty(ctx.ownerId, id, {
           ...rest,
           ...(comissaoPct !== undefined ? { comissaoPct: String(comissaoPct) } : {}),
           ...(custoFaxina !== undefined ? { custoFaxina: String(custoFaxina) } : {}),
           ...(valorParcela !== undefined ? { valorParcela: valorParcela !== null ? String(valorParcela) : null } : {}),
         });
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteProperty(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteProperty(ctx.ownerId, input.id)),
   }),
 
   // ------------------------------------------------------------- imobiliarias
   imobiliarias: router({
-    list: protectedProcedure.query(({ ctx }) => db.listImobiliarias(ctx.user.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.listImobiliarias(ctx.ownerId)),
+    create: escritaProcedure
       .input(
         z.object({
           nome: z.string().min(1),
@@ -423,7 +475,7 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) =>
         db.createImobiliaria({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           nome: input.nome,
           telefone: input.telefone || null,
           celular: input.celular || null,
@@ -433,7 +485,7 @@ export const appRouter = router({
           endereco: input.endereco || null,
         }),
       ),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -448,15 +500,15 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) => {
         const { id, ...rest } = input;
-        return db.updateImobiliaria(ctx.user.id, id, rest);
+        return db.updateImobiliaria(ctx.ownerId, id, rest);
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteImobiliaria(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteImobiliaria(ctx.ownerId, input.id)),
   }),
 
   // ------------------------------------------------------------- gestores de temporada (curta_managers)
   curtaManagers: router({
-    list: protectedProcedure.query(({ ctx }) => db.listCurtaManagers(ctx.user.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.listCurtaManagers(ctx.ownerId)),
+    create: escritaProcedure
       .input(
         z.object({
           nome: z.string().min(1),
@@ -467,14 +519,14 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) =>
         db.createCurtaManager({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           nome: input.nome,
           telefone: input.telefone || null,
           email: input.email || null,
           contato: input.contato || null,
         }),
       ),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -486,20 +538,20 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) => {
         const { id, ...rest } = input;
-        return db.updateCurtaManager(ctx.user.id, id, rest);
+        return db.updateCurtaManager(ctx.ownerId, id, rest);
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteCurtaManager(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteCurtaManager(ctx.ownerId, input.id)),
   }),
 
   // ------------------------------------------------------------- plano de contas
   chartAccounts: router({
-    list: protectedProcedure
+    list: empresaProcedure
       .input(z.object({ grupo: z.enum(["conta_principal", "despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
-        const all = await db.seedDefaultChartAccountsIfNeeded(ctx.user.id);
+        const all = await db.seedDefaultChartAccountsIfNeeded(ctx.ownerId);
         return input?.grupo ? all.filter((a) => a.grupo === input.grupo) : all;
       }),
-    create: protectedProcedure
+    create: escritaProcedure
       .input(
         z.object({
           grupo: z.enum(["conta_principal", "despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
@@ -510,7 +562,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         let grupo = input.grupo;
         if (input.parentId) {
-          const contas = await db.listChartAccounts(ctx.user.id);
+          const contas = await db.listChartAccounts(ctx.ownerId);
           const pai = contas.find((c) => c.id === input.parentId);
           if (!pai) throw new Error("Conta-pai não encontrada.");
           // Sub-conta herda a natureza da conta-pai. Plano de contas tem exatamente 4 níveis fixos.
@@ -520,25 +572,25 @@ export const appRouter = router({
           grupo = pai.grupo;
         }
         if (!grupo) throw new Error("Selecione a natureza da conta principal.");
-        return db.createChartAccount({ ownerId: ctx.user.id, grupo, nome: input.nome, parentId: input.parentId ?? null, ativa: 1 });
+        return db.createChartAccount({ ownerId: ctx.ownerId, grupo, nome: input.nome, parentId: input.parentId ?? null, ativa: 1 });
       }),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
-      .mutation(({ ctx, input }) => db.updateChartAccount(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteChartAccount(ctx.user.id, input.id)),
+      .mutation(({ ctx, input }) => db.updateChartAccount(ctx.ownerId, input.id, { nome: input.nome, ativa: input.ativa })),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteChartAccount(ctx.ownerId, input.id)),
   }),
 
   // --------------------------------------------------------- lançamentos (receitas, despesas, aportes)
   ledgerEntries: router({
-    list: protectedProcedure
+    list: empresaProcedure
       .input(
         z.object({
           propertyId: z.number().optional(),
           grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
         }),
       )
-      .query(({ ctx, input }) => db.listLedgerEntries(ctx.user.id, input.propertyId, input.grupo)),
-    create: protectedProcedure
+      .query(({ ctx, input }) => db.listLedgerEntries(ctx.ownerId, input.propertyId, input.grupo)),
+    create: escritaProcedure
       .input(
         z.object({
           propertyId: z.number(),
@@ -553,9 +605,9 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { conta, nome } = await resolveChartAccount(ctx.user.id, input.chartAccountId, CHART_ACCOUNT_GRUPOS);
+        const { conta, nome } = await resolveChartAccount(ctx.ownerId, input.chartAccountId, CHART_ACCOUNT_GRUPOS);
         return db.createLedgerEntry({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           chartAccountId: conta.id,
           grupo: conta.grupo,
@@ -569,7 +621,7 @@ export const appRouter = router({
           observacao: input.observacao || null,
         });
       }),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -586,46 +638,46 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const { id, valor, chartAccountId, ...rest } = input;
-        const entry = await db.getLedgerEntry(ctx.user.id, id);
+        const entry = await db.getLedgerEntry(ctx.ownerId, id);
         if (entry && (entry.reservationId || entry.contractRentChargeId || entry.propertyCostId)) {
           throw new Error("Este lançamento foi gerado automaticamente por uma reserva, contrato ou custo do imóvel e não pode ser editado aqui.");
         }
         let contaFields = {};
         if (chartAccountId !== undefined) {
-          const { conta, nome } = await resolveChartAccount(ctx.user.id, chartAccountId, CHART_ACCOUNT_GRUPOS);
+          const { conta, nome } = await resolveChartAccount(ctx.ownerId, chartAccountId, CHART_ACCOUNT_GRUPOS);
           contaFields = { chartAccountId: conta.id, grupo: conta.grupo, categoria: nome };
         }
-        return db.updateLedgerEntry(ctx.user.id, id, {
+        return db.updateLedgerEntry(ctx.ownerId, id, {
           ...rest,
           ...contaFields,
           ...(valor !== undefined ? { valor: String(valor) } : {}),
         });
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
-      const entry = await db.getLedgerEntry(ctx.user.id, input.id);
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const entry = await db.getLedgerEntry(ctx.ownerId, input.id);
       if (entry && (entry.reservationId || entry.contractRentChargeId || entry.propertyCostId)) {
         throw new Error("Este lançamento foi gerado automaticamente por uma reserva, contrato ou custo do imóvel e não pode ser excluído aqui.");
       }
-      return db.deleteLedgerEntry(ctx.user.id, input.id);
+      return db.deleteLedgerEntry(ctx.ownerId, input.id);
     }),
   }),
 
   // --------------------------------------------------------- guarantee types
   guaranteeTypes: router({
-    list: protectedProcedure.query(({ ctx }) => db.seedDefaultGuaranteeTypesIfNeeded(ctx.user.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.seedDefaultGuaranteeTypesIfNeeded(ctx.ownerId)),
+    create: escritaProcedure
       .input(z.object({ nome: z.string().min(1) }))
-      .mutation(({ ctx, input }) => db.createGuaranteeType({ ownerId: ctx.user.id, nome: input.nome, ativa: 1 })),
-    update: protectedProcedure
+      .mutation(({ ctx, input }) => db.createGuaranteeType({ ownerId: ctx.ownerId, nome: input.nome, ativa: 1 })),
+    update: escritaProcedure
       .input(z.object({ id: z.number(), nome: z.string().optional(), ativa: z.number().min(0).max(1).optional() }))
-      .mutation(({ ctx, input }) => db.updateGuaranteeType(ctx.user.id, input.id, { nome: input.nome, ativa: input.ativa })),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteGuaranteeType(ctx.user.id, input.id)),
+      .mutation(({ ctx, input }) => db.updateGuaranteeType(ctx.ownerId, input.id, { nome: input.nome, ativa: input.ativa })),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteGuaranteeType(ctx.ownerId, input.id)),
   }),
 
   // ------------------------------------------------------------- fornecedores
   fornecedores: router({
-    list: protectedProcedure.query(({ ctx }) => db.listFornecedores(ctx.user.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.listFornecedores(ctx.ownerId)),
+    create: escritaProcedure
       .input(
         z.object({
           nome: z.string().min(1),
@@ -637,10 +689,10 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         if (input.chartAccountId) {
-          await resolveChartAccount(ctx.user.id, input.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
+          await resolveChartAccount(ctx.ownerId, input.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
         }
         return db.createFornecedor({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           nome: input.nome,
           cpfCnpj: input.cpfCnpj || null,
           telefone: input.telefone || null,
@@ -649,7 +701,7 @@ export const appRouter = router({
           ativo: 1,
         });
       }),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -664,34 +716,34 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { id, ...rest } = input;
         if (rest.chartAccountId) {
-          await resolveChartAccount(ctx.user.id, rest.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
+          await resolveChartAccount(ctx.ownerId, rest.chartAccountId, ["despesa_fixa", "despesa_variavel"]);
         }
-        return db.updateFornecedor(ctx.user.id, id, rest);
+        return db.updateFornecedor(ctx.ownerId, id, rest);
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteFornecedor(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteFornecedor(ctx.ownerId, input.id)),
   }),
 
   // -------------------------------------------------------------- sócios
   socios: router({
-    list: protectedProcedure.query(({ ctx }) => db.listSocios(ctx.user.id)),
-    create: protectedProcedure
+    list: empresaProcedure.query(({ ctx }) => db.listSocios(ctx.ownerId)),
+    create: escritaProcedure
       .input(z.object({ nome: z.string().min(1), cpf: z.string().min(1) }))
-      .mutation(({ ctx, input }) => db.createSocio({ ownerId: ctx.user.id, nome: input.nome, cpf: input.cpf })),
-    update: protectedProcedure
+      .mutation(({ ctx, input }) => db.createSocio({ ownerId: ctx.ownerId, nome: input.nome, cpf: input.cpf })),
+    update: escritaProcedure
       .input(z.object({ id: z.number(), nome: z.string().optional(), cpf: z.string().optional() }))
       .mutation(({ ctx, input }) => {
         const { id, ...rest } = input;
-        return db.updateSocio(ctx.user.id, id, rest);
+        return db.updateSocio(ctx.ownerId, id, rest);
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteSocio(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteSocio(ctx.ownerId, input.id)),
   }),
 
   // -------------------------------------------------------- inventory items
   inventoryItems: router({
-    list: protectedProcedure
+    list: empresaProcedure
       .input(z.object({ propertyId: z.number() }))
-      .query(({ ctx, input }) => db.listInventoryItems(ctx.user.id, input.propertyId)),
-    create: protectedProcedure
+      .query(({ ctx, input }) => db.listInventoryItems(ctx.ownerId, input.propertyId)),
+    create: escritaProcedure
       .input(
         z.object({
           propertyId: z.number(),
@@ -702,14 +754,14 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) =>
         db.createInventoryItem({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           nome: input.nome,
           quantidade: input.quantidade,
           descricao: input.descricao || null,
         }),
       ),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -720,17 +772,17 @@ export const appRouter = router({
       )
       .mutation(({ ctx, input }) => {
         const { id, ...rest } = input;
-        return db.updateInventoryItem(ctx.user.id, id, rest);
+        return db.updateInventoryItem(ctx.ownerId, id, rest);
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInventoryItem(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteInventoryItem(ctx.ownerId, input.id)),
   }),
 
   // --------------------------------------------------------- property costs
   propertyCosts: router({
-    list: protectedProcedure
+    list: empresaProcedure
       .input(z.object({ propertyId: z.number() }))
-      .query(({ ctx, input }) => db.listPropertyCosts(ctx.user.id, input.propertyId)),
-    create: protectedProcedure
+      .query(({ ctx, input }) => db.listPropertyCosts(ctx.ownerId, input.propertyId)),
+    create: escritaProcedure
       .input(
         z.object({
           propertyId: z.number(),
@@ -753,17 +805,17 @@ export const appRouter = router({
         // Um condomínio novo encerra o anterior em aberto em vez de sobrescrevê-lo: o valor antigo
         // precisa continuar valendo nos meses já fechados.
         if (input.tipo === "condominio") {
-          const anteriores = await db.listPropertyCosts(ctx.user.id, input.propertyId);
+          const anteriores = await db.listPropertyCosts(ctx.ownerId, input.propertyId);
           for (const ant of anteriores) {
             if (ant.tipo !== "condominio") continue;
             if (ant.competenciaInicio >= input.competenciaInicio) continue;
             const novaQtd = db.encerrarSerieAntes(ant.competenciaInicio, input.competenciaInicio);
-            if (novaQtd < ant.qtdMeses) await db.updatePropertyCost(ctx.user.id, ant.id, { qtdMeses: novaQtd });
+            if (novaQtd < ant.qtdMeses) await db.updatePropertyCost(ctx.ownerId, ant.id, { qtdMeses: novaQtd });
           }
         }
 
         await db.createPropertyCost({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           tipo: input.tipo,
           valor: String(round2(valorParcela)),
@@ -773,9 +825,9 @@ export const appRouter = router({
           descricao: input.descricao || null,
           responsavel: input.tipo === "condominio_extra" ? (input.responsavel ?? "proprietario") : null,
         });
-        await sincronizarCustosDoImovel(ctx.user.id, input.propertyId);
+        await sincronizarCustosDoImovel(ctx.ownerId, input.propertyId);
       }),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -788,7 +840,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const atual = await db.getPropertyCost(ctx.user.id, input.id);
+        const atual = await db.getPropertyCost(ctx.ownerId, input.id);
         if (!atual) throw new Error("Custo não encontrado");
         const { id, valor, ...rest } = input;
         const data: Record<string, unknown> = { ...rest };
@@ -797,25 +849,25 @@ export const appRouter = router({
           data.valor = String(round2(atual.tipo === "iptu" ? valor / qtd : valor));
         }
         if (rest.descricao !== undefined) data.descricao = rest.descricao || null;
-        await db.updatePropertyCost(ctx.user.id, id, data);
-        await sincronizarCustosDoImovel(ctx.user.id, atual.propertyId);
+        await db.updatePropertyCost(ctx.ownerId, id, data);
+        await sincronizarCustosDoImovel(ctx.ownerId, atual.propertyId);
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
-      const atual = await db.getPropertyCost(ctx.user.id, input.id);
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const atual = await db.getPropertyCost(ctx.ownerId, input.id);
       if (!atual) return;
-      await db.deleteLedgerEntriesByPropertyCost(ctx.user.id, input.id);
-      await db.deletePropertyCost(ctx.user.id, input.id);
-      await sincronizarCustosDoImovel(ctx.user.id, atual.propertyId);
+      await db.deleteLedgerEntriesByPropertyCost(ctx.ownerId, input.id);
+      await db.deletePropertyCost(ctx.ownerId, input.id);
+      await sincronizarCustosDoImovel(ctx.ownerId, atual.propertyId);
     }),
   }),
 
   // -------------------------------------------------- long term contracts (aluguel de longa duração)
   longTermContracts: router({
-    list: protectedProcedure
+    list: empresaProcedure
       .input(z.object({ propertyId: z.number().optional() }))
-      .query(({ ctx, input }) => db.listLongTermContracts(ctx.user.id, input.propertyId)),
-    get: protectedProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getLongTermContract(ctx.user.id, input.id)),
-    create: protectedProcedure
+      .query(({ ctx, input }) => db.listLongTermContracts(ctx.ownerId, input.propertyId)),
+    get: empresaProcedure.input(z.object({ id: z.number() })).query(({ ctx, input }) => db.getLongTermContract(ctx.ownerId, input.id)),
+    create: escritaProcedure
       .input(
         z.object({
           propertyId: z.number(),
@@ -852,7 +904,7 @@ export const appRouter = router({
         const dataReajuste = addMonthsToDate(rest.dataInicio, 12);
 
         const contractId = await db.createLongTermContract({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: rest.propertyId,
           dataInicio: rest.dataInicio,
           dataFim,
@@ -891,7 +943,7 @@ export const appRouter = router({
           if (competencia >= dataFim.slice(0, 7)) break;
           const dataVencimento = calcularVencimento(competencia, rest.diaVencimentoAluguel);
           const chargeId = await db.createContractRentCharge({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             contractId,
             propertyId: rest.propertyId,
             valor: String(valorAluguel),
@@ -902,7 +954,7 @@ export const appRouter = router({
 
           // Lança a receita do aluguel automaticamente no plano de contas
           await db.createLedgerEntry({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             propertyId: rest.propertyId,
             chartAccountId: null,
             grupo: "receita",
@@ -918,11 +970,11 @@ export const appRouter = router({
 
         // O contrato acabou de definir quem paga condomínio/IPTU nos meses que ele cobre, então os
         // custos já cadastrados no imóvel podem ter trocado de dono.
-        await sincronizarCustosDoImovel(ctx.user.id, rest.propertyId);
+        await sincronizarCustosDoImovel(ctx.ownerId, rest.propertyId);
 
         return { id: contractId };
       }),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -954,8 +1006,8 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const { id, dataInicio, dataFim, dataReajuste, carenciaInicio, carenciaFim, comissaoPct, prazoIndeterminadoValor, ...rest } = input;
-        const contrato = await db.getLongTermContract(ctx.user.id, id);
-        await db.updateLongTermContract(ctx.user.id, id, {
+        const contrato = await db.getLongTermContract(ctx.ownerId, id);
+        await db.updateLongTermContract(ctx.ownerId, id, {
           ...rest,
           ...(comissaoPct !== undefined ? { comissaoPct: String(comissaoPct) } : {}),
           ...(prazoIndeterminadoValor !== undefined ? { prazoIndeterminadoValor: prazoIndeterminadoValor !== null ? String(prazoIndeterminadoValor) : null } : {}),
@@ -966,27 +1018,27 @@ export const appRouter = router({
           ...(carenciaFim !== undefined ? { carenciaFim } : {}),
         });
         // Vigência e responsabilidade podem ter mudado, e ambas alteram quem paga cada custo.
-        if (contrato) await sincronizarCustosDoImovel(ctx.user.id, contrato.propertyId);
+        if (contrato) await sincronizarCustosDoImovel(ctx.ownerId, contrato.propertyId);
       }),
-    delete: protectedProcedure
+    delete: escritaProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const contrato = await db.getLongTermContract(ctx.user.id, input.id);
-        const parcelas = await db.listContractRentCharges(ctx.user.id, input.id);
+        const contrato = await db.getLongTermContract(ctx.ownerId, input.id);
+        const parcelas = await db.listContractRentCharges(ctx.ownerId, input.id);
         for (const p of parcelas) {
-          if (p.descontoLedgerEntryId) await db.deleteLedgerEntry(ctx.user.id, p.descontoLedgerEntryId);
-          await db.deleteLedgerEntriesByContractRentCharge(ctx.user.id, p.id);
+          if (p.descontoLedgerEntryId) await db.deleteLedgerEntry(ctx.ownerId, p.descontoLedgerEntryId);
+          await db.deleteLedgerEntriesByContractRentCharge(ctx.ownerId, p.id);
         }
-        await db.deleteLongTermContract(ctx.user.id, input.id);
+        await db.deleteLongTermContract(ctx.ownerId, input.id);
         // Sem contrato cobrindo os meses, os custos voltam a ser do proprietário.
-        if (contrato) await sincronizarCustosDoImovel(ctx.user.id, contrato.propertyId);
+        if (contrato) await sincronizarCustosDoImovel(ctx.ownerId, contrato.propertyId);
       }),
 
     // ---- recebíveis (parcelas) do contrato
-    charges: protectedProcedure
+    charges: empresaProcedure
       .input(z.object({ contractId: z.number().optional() }))
-      .query(({ ctx, input }) => db.listContractRentCharges(ctx.user.id, input.contractId)),
-    addCharge: protectedProcedure
+      .query(({ ctx, input }) => db.listContractRentCharges(ctx.ownerId, input.contractId)),
+    addCharge: escritaProcedure
       .input(
         z.object({
           contractId: z.number(),
@@ -998,7 +1050,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const chargeId = await db.createContractRentCharge({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           contractId: input.contractId,
           propertyId: input.propertyId,
           valor: String(input.valor),
@@ -1007,11 +1059,11 @@ export const appRouter = router({
           status: "pendente",
         });
 
-        const contrato = await db.getLongTermContract(ctx.user.id, input.contractId);
+        const contrato = await db.getLongTermContract(ctx.ownerId, input.contractId);
 
         // Lança a receita do aluguel automaticamente no plano de contas
         await db.createLedgerEntry({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           chartAccountId: null,
           grupo: "receita",
@@ -1025,11 +1077,11 @@ export const appRouter = router({
         });
 
         // A parcela nasce zerada de condomínio/IPTU; a sincronização preenche o repasse do mês.
-        await sincronizarCustosDoImovel(ctx.user.id, input.propertyId);
+        await sincronizarCustosDoImovel(ctx.ownerId, input.propertyId);
 
         return { id: chargeId };
       }),
-    markReceived: protectedProcedure
+    markReceived: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -1041,12 +1093,12 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const charge = await db.getContractRentCharge(ctx.user.id, input.id);
+        const charge = await db.getContractRentCharge(ctx.ownerId, input.id);
         if (!charge) throw new Error("Parcela não encontrada.");
 
         // Se já havia um desconto anterior vinculado (ex.: reenviando o formulário), remove o lançamento antigo primeiro.
         if (charge.descontoLedgerEntryId) {
-          await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
+          await db.deleteLedgerEntry(ctx.ownerId, charge.descontoLedgerEntryId);
         }
 
         let descontoLedgerEntryId: number | null = null;
@@ -1054,10 +1106,10 @@ export const appRouter = router({
           // Conta é opcional: se a pessoa descreveu o motivo, não precisa classificar por conta (e vice-versa).
           let contaResolvida: { conta: { id: number; grupo: "despesa_fixa" | "despesa_variavel" }; nome: string } | null = null;
           if (input.descontoChartAccountId) {
-            contaResolvida = await resolveChartAccount(ctx.user.id, input.descontoChartAccountId, ["despesa_fixa", "despesa_variavel"]);
+            contaResolvida = await resolveChartAccount(ctx.ownerId, input.descontoChartAccountId, ["despesa_fixa", "despesa_variavel"]);
           }
           descontoLedgerEntryId = await db.createLedgerEntry({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             propertyId: charge.propertyId,
             chartAccountId: contaResolvida?.conta.id ?? null,
             grupo: contaResolvida?.conta.grupo ?? "despesa_variavel",
@@ -1072,7 +1124,7 @@ export const appRouter = router({
 
         const valorRecebido = num(charge.valor) + input.multaJuros - input.desconto;
 
-        await db.updateContractRentCharge(ctx.user.id, input.id, {
+        await db.updateContractRentCharge(ctx.ownerId, input.id, {
           status: "recebido",
           dataRecebimento: input.dataRecebimento || new Date().toISOString().slice(0, 10),
           multaJuros: String(input.multaJuros),
@@ -1083,14 +1135,14 @@ export const appRouter = router({
 
         return { success: true };
       }),
-    markPending: protectedProcedure
+    markPending: escritaProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const charge = await db.getContractRentCharge(ctx.user.id, input.id);
+        const charge = await db.getContractRentCharge(ctx.ownerId, input.id);
         if (charge?.descontoLedgerEntryId) {
-          await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
+          await db.deleteLedgerEntry(ctx.ownerId, charge.descontoLedgerEntryId);
         }
-        return db.updateContractRentCharge(ctx.user.id, input.id, {
+        return db.updateContractRentCharge(ctx.ownerId, input.id, {
           status: "pendente",
           dataRecebimento: null,
           multaJuros: "0.00",
@@ -1099,23 +1151,23 @@ export const appRouter = router({
           descontoLedgerEntryId: null,
         });
       }),
-    updateCharge: protectedProcedure
+    updateCharge: escritaProcedure
       .input(z.object({ id: z.number(), valor: z.number().positive().optional(), dataVencimento: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const { id, valor, dataVencimento } = input;
-        await db.updateContractRentCharge(ctx.user.id, id, {
+        await db.updateContractRentCharge(ctx.ownerId, id, {
           ...(valor !== undefined ? { valor: String(valor) } : {}),
           ...(dataVencimento !== undefined ? { dataVencimento } : {}),
         });
 
         // Reconcilia a receita automática vinculada se o valor ou o vencimento mudou
         if (valor !== undefined || dataVencimento !== undefined) {
-          const charge = await db.getContractRentCharge(ctx.user.id, id);
+          const charge = await db.getContractRentCharge(ctx.ownerId, id);
           if (charge) {
-            await db.deleteLedgerEntriesByContractRentCharge(ctx.user.id, id);
-            const contrato = await db.getLongTermContract(ctx.user.id, charge.contractId);
+            await db.deleteLedgerEntriesByContractRentCharge(ctx.ownerId, id);
+            const contrato = await db.getLongTermContract(ctx.ownerId, charge.contractId);
             await db.createLedgerEntry({
-              ownerId: ctx.user.id,
+              ownerId: ctx.ownerId,
               propertyId: charge.propertyId,
               chartAccountId: null,
               grupo: "receita",
@@ -1130,24 +1182,24 @@ export const appRouter = router({
           }
         }
       }),
-    deleteCharge: protectedProcedure
+    deleteCharge: escritaProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const charge = await db.getContractRentCharge(ctx.user.id, input.id);
+        const charge = await db.getContractRentCharge(ctx.ownerId, input.id);
         if (charge?.descontoLedgerEntryId) {
-          await db.deleteLedgerEntry(ctx.user.id, charge.descontoLedgerEntryId);
+          await db.deleteLedgerEntry(ctx.ownerId, charge.descontoLedgerEntryId);
         }
-        await db.deleteLedgerEntriesByContractRentCharge(ctx.user.id, input.id);
-        return db.deleteContractRentCharge(ctx.user.id, input.id);
+        await db.deleteLedgerEntriesByContractRentCharge(ctx.ownerId, input.id);
+        return db.deleteContractRentCharge(ctx.ownerId, input.id);
       }),
   }),
 
   // --------------------------------------------------------- reservations
   reservations: router({
-    list: protectedProcedure
+    list: empresaProcedure
       .input(z.object({ propertyId: z.number().optional(), competencia: z.string().optional() }))
-      .query(({ ctx, input }) => db.listReservations(ctx.user.id, input.propertyId, input.competencia)),
-    create: protectedProcedure
+      .query(({ ctx, input }) => db.listReservations(ctx.ownerId, input.propertyId, input.competencia)),
+    create: escritaProcedure
       .input(
         z.object({
           propertyId: z.number(),
@@ -1169,7 +1221,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const novaReservaId = await db.createReservation({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           codigo: input.codigo,
           valorBruto: String(input.valorBruto),
@@ -1190,7 +1242,7 @@ export const appRouter = router({
 
         // Lança a receita da locação automaticamente no plano de contas
         await db.createLedgerEntry({
-          ownerId: ctx.user.id,
+          ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           chartAccountId: null,
           grupo: "receita",
@@ -1205,12 +1257,12 @@ export const appRouter = router({
 
         // Gerar despesa automática de faxina se houver custo configurado no imóvel
         if (input.faxinasUtilizadas > 0) {
-          const prop = await db.getProperty(ctx.user.id, input.propertyId);
+          const prop = await db.getProperty(ctx.ownerId, input.propertyId);
           const custoUnit = Number(prop?.custoFaxina ?? 0);
           if (custoUnit > 0) {
             const totalFaxina = custoUnit * input.faxinasUtilizadas;
             await db.createLedgerEntry({
-              ownerId: ctx.user.id,
+              ownerId: ctx.ownerId,
               propertyId: input.propertyId,
               chartAccountId: null,
               grupo: "despesa_variavel",
@@ -1225,7 +1277,7 @@ export const appRouter = router({
           }
         }
       }),
-    update: protectedProcedure
+    update: escritaProcedure
       .input(
         z.object({
           id: z.number(),
@@ -1249,7 +1301,7 @@ export const appRouter = router({
         const { id, valorBruto, taxaLimpeza, taxaAirbnb, outrasTaxas, valorLiquidoRecebido, checkin, checkout, faxinasUtilizadas, estrangeiro, ...rest } = input;
 
         // Verificar se há NFS-e emitida — bloquear edição de campos fiscais e de período
-        const notasExistentes = await db.listInvoicesByReservation(ctx.user.id, id);
+        const notasExistentes = await db.listInvoicesByReservation(ctx.ownerId, id);
         if (notasExistentes.length > 0) {
           const camposBloqueados = valorBruto !== undefined || taxaLimpeza !== undefined || taxaAirbnb !== undefined || checkin !== undefined || checkout !== undefined || rest.codigo !== undefined;
           if (camposBloqueados) {
@@ -1257,7 +1309,7 @@ export const appRouter = router({
           }
         }
 
-        await db.updateReservation(ctx.user.id, id, {
+        await db.updateReservation(ctx.ownerId, id, {
           ...rest,
           ...(valorBruto !== undefined ? { valorBruto: String(valorBruto) } : {}),
           ...(taxaLimpeza !== undefined ? { taxaLimpeza: String(taxaLimpeza) } : {}),
@@ -1274,14 +1326,14 @@ export const appRouter = router({
         const afetaLancamentosAutomaticos =
           faxinasUtilizadas !== undefined || valorBruto !== undefined || taxaLimpeza !== undefined || checkin !== undefined;
         if (afetaLancamentosAutomaticos) {
-          const reserva = await db.getReservation(ctx.user.id, id);
+          const reserva = await db.getReservation(ctx.ownerId, id);
           if (reserva) {
             // Remove os lançamentos antigos vinculados (receita + faxina) para recriar do zero
-            await db.deleteLedgerEntriesByReservation(ctx.user.id, id);
+            await db.deleteLedgerEntriesByReservation(ctx.ownerId, id);
 
             // Recria a receita automática da locação
             await db.createLedgerEntry({
-              ownerId: ctx.user.id,
+              ownerId: ctx.ownerId,
               propertyId: reserva.propertyId,
               chartAccountId: null,
               grupo: "receita",
@@ -1297,11 +1349,11 @@ export const appRouter = router({
             // Recria a despesa automática de faxina, se houver
             const faxinasAtual = faxinasUtilizadas !== undefined ? faxinasUtilizadas : reserva.faxinasUtilizadas;
             if (faxinasAtual > 0) {
-              const prop = await db.getProperty(ctx.user.id, reserva.propertyId);
+              const prop = await db.getProperty(ctx.ownerId, reserva.propertyId);
               const custoUnit = Number(prop?.custoFaxina ?? 0);
               if (custoUnit > 0) {
                 await db.createLedgerEntry({
-                  ownerId: ctx.user.id,
+                  ownerId: ctx.ownerId,
                   propertyId: reserva.propertyId,
                   chartAccountId: null,
                   grupo: "despesa_variavel",
@@ -1318,10 +1370,10 @@ export const appRouter = router({
           }
         }
       }),
-    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteReservation(ctx.user.id, input.id)),
+    delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteReservation(ctx.ownerId, input.id)),
 
     // Importação de CSV do Airbnb
-    importCsv: protectedProcedure
+    importCsv: escritaProcedure
       .input(
         z.object({
           propertyId: z.number(),
@@ -1346,14 +1398,14 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const prop = await db.getProperty(ctx.user.id, input.propertyId);
+        const prop = await db.getProperty(ctx.ownerId, input.propertyId);
         if (!prop) throw new Error("Imóvel não encontrado");
         const custoUnit = Number(prop.custoFaxina ?? 0);
         let importadas = 0;
 
         for (const row of input.rows) {
           const novaReservaId = await db.createReservation({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             propertyId: input.propertyId,
             codigo: row.codigo,
             valorBruto: String(row.valorBruto),
@@ -1374,7 +1426,7 @@ export const appRouter = router({
 
           // Lança a receita da locação automaticamente no plano de contas
           await db.createLedgerEntry({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             propertyId: input.propertyId,
             chartAccountId: null,
             grupo: "receita",
@@ -1391,7 +1443,7 @@ export const appRouter = router({
           if (row.faxinasUtilizadas > 0 && custoUnit > 0) {
             const totalFaxina = custoUnit * row.faxinasUtilizadas;
             await db.createLedgerEntry({
-              ownerId: ctx.user.id,
+              ownerId: ctx.ownerId,
               propertyId: input.propertyId,
               chartAccountId: null,
               grupo: "despesa_variavel",
@@ -1411,32 +1463,32 @@ export const appRouter = router({
       }),
 
     // Nota fiscal por reserva
-    invoices: protectedProcedure
+    invoices: empresaProcedure
       .input(z.object({ reservationId: z.number() }))
-      .query(({ ctx, input }) => db.listInvoicesByReservation(ctx.user.id, input.reservationId)),
+      .query(({ ctx, input }) => db.listInvoicesByReservation(ctx.ownerId, input.reservationId)),
 
     // Notas por imóvel (para o extrato de repasse), filtradas por competência
-    invoicesByProperty: protectedProcedure
+    invoicesByProperty: empresaProcedure
       .input(z.object({ propertyId: z.number(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
-        const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
+        const reservas = await db.listReservations(ctx.ownerId, input.propertyId, input.competencia);
         const ids = new Set(reservas.map((r) => r.id));
-        const notas = await db.listInvoicesByProperty(ctx.user.id, input.propertyId);
+        const notas = await db.listInvoicesByProperty(ctx.ownerId, input.propertyId);
         return notas.filter((n) => n.reservationId != null && ids.has(n.reservationId));
       }),
 
-    emitir: protectedProcedure
+    emitir: escritaProcedure
       .input(z.object({ reservationId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const reserva = await db.getReservation(ctx.user.id, input.reservationId);
+        const reserva = await db.getReservation(ctx.ownerId, input.reservationId);
         if (!reserva) throw new Error("Reserva não encontrada");
-        const prop = await db.getProperty(ctx.user.id, reserva.propertyId);
+        const prop = await db.getProperty(ctx.ownerId, reserva.propertyId);
         if (!prop) throw new Error("Imóvel não encontrado");
-        const cliente = prop.clientId ? await db.getClient(ctx.user.id, prop.clientId) : null;
+        const cliente = prop.clientId ? await db.getClient(ctx.ownerId, prop.clientId) : null;
         if (!cliente && prop.clientId) throw new Error("Cliente não encontrado");
 
         // limpa notas anteriores desta reserva (idempotência simples)
-        await db.deleteInvoicesByReservation(ctx.user.id, input.reservationId);
+        await db.deleteInvoicesByReservation(ctx.ownerId, input.reservationId);
 
         // Imóvel administrado diretamente pelo próprio proprietário (ex.: holding com
         // imóveis próprios) não tem administradora cobrando comissão de terceiro —
@@ -1468,7 +1520,7 @@ export const appRouter = router({
         if (!isPropria) {
           respComissao = await emitirNfse(resultado.notaComissao);
           await db.createInvoice({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             reservationId: reserva.id,
             propertyId: prop.id,
             tipo: "comissao",
@@ -1487,7 +1539,7 @@ export const appRouter = router({
         if (resultado.gerarNotaLocacao) {
           respLocacao = await emitirNfse(resultado.notaLocacao);
           await db.createInvoice({
-            ownerId: ctx.user.id,
+            ownerId: ctx.ownerId,
             reservationId: reserva.id,
             propertyId: prop.id,
             tipo: "locacao",
@@ -1510,22 +1562,22 @@ export const appRouter = router({
 
   // --------------------------------------------------------------- DRE
   dre: router({
-    porUnidade: protectedProcedure
+    porUnidade: financeiroProcedure
       .input(z.object({ propertyId: z.number(), competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
-        const prop = await db.getProperty(ctx.user.id, input.propertyId);
+        const prop = await db.getProperty(ctx.ownerId, input.propertyId);
         if (!prop) throw new Error("Imóvel não encontrado");
-        const cliente = prop.clientId ? await db.getClient(ctx.user.id, prop.clientId) : null;
+        const cliente = prop.clientId ? await db.getClient(ctx.ownerId, prop.clientId) : null;
 
-        const reservas = await db.listReservations(ctx.user.id, input.propertyId, input.competencia);
-        const despesasFixasRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "despesa_fixa");
-        const despesasVariaveisRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "despesa_variavel");
+        const reservas = await db.listReservations(ctx.ownerId, input.propertyId, input.competencia);
+        const despesasFixasRaw = await db.listLedgerEntriesNaCompetencia(ctx.ownerId, input.propertyId, input.competencia, "despesa_fixa");
+        const despesasVariaveisRaw = await db.listLedgerEntriesNaCompetencia(ctx.ownerId, input.propertyId, input.competencia, "despesa_variavel");
         // Exclui lançamentos automáticos de receita (já contabilizados abaixo a partir das próprias
         // reservas/parcelas) para não contar a mesma receita duas vezes.
-        const receitasManuaisRaw = (await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "receita")).filter(
+        const receitasManuaisRaw = (await db.listLedgerEntriesNaCompetencia(ctx.ownerId, input.propertyId, input.competencia, "receita")).filter(
           (e) => !e.reservationId && !e.contractRentChargeId,
         );
-        const aportesRaw = await db.listLedgerEntriesNaCompetencia(ctx.user.id, input.propertyId, input.competencia, "aporte_capital");
+        const aportesRaw = await db.listLedgerEntriesNaCompetencia(ctx.ownerId, input.propertyId, input.competencia, "aporte_capital");
 
         let receitaBruta = 0;
         let taxaAirbnb = 0;
@@ -1561,8 +1613,8 @@ export const appRouter = router({
 
         // Receita de aluguel de longa duração: parcelas do contrato com competência neste mês.
         if (prop.tipoLocacao === "longa") {
-          const parcelas = await db.listContractRentChargesByProperty(ctx.user.id, input.propertyId, input.competencia);
-          const contratos = await db.listLongTermContracts(ctx.user.id, input.propertyId);
+          const parcelas = await db.listContractRentChargesByProperty(ctx.ownerId, input.propertyId, input.competencia);
+          const contratos = await db.listLongTermContracts(ctx.ownerId, input.propertyId);
           const contrato = contratos[0];
           const comissaoPctLonga = contrato && contrato.tipoAdministracao !== "propria" ? num(contrato.comissaoPct) : 0;
           for (const p of parcelas) {
@@ -1618,7 +1670,7 @@ export const appRouter = router({
 
     // DRE consolidado da empresa: soma os lançamentos (Receitas/Despesas/Aportes) de todos os
     // imóveis para a competência, organizados pelas contas do plano de contas.
-    empresa: protectedProcedure
+    empresa: financeiroProcedure
       .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -1626,7 +1678,7 @@ export const appRouter = router({
 
         const secoes = await Promise.all(
           grupos.map(async (grupo) => {
-            const todos = await db.listLedgerEntries(ctx.user.id, undefined, grupo);
+            const todos = await db.listLedgerEntries(ctx.ownerId, undefined, grupo);
             const doMes = todos.filter((e) => db.competenciaNaSerie(e.competenciaInicio, e.qtdMeses, input.competencia));
 
             const porConta = new Map<string, number>();
@@ -1669,15 +1721,15 @@ export const appRouter = router({
   relatorios: router({
     // Relatório mensal para a EFD Contribuições: quem alugou cada unidade (curta e longa
     // duração), com nome, CPF/passaporte e valor, mais o total recebido no mês.
-    efdContribuicoes: protectedProcedure
+    efdContribuicoes: financeiroProcedure
       .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-        const props = await db.listProperties(ctx.user.id);
+        const props = await db.listProperties(ctx.ownerId);
         const propMap = new Map(props.map((p) => [p.id, p]));
 
-        const reservas = await db.listReservations(ctx.user.id, undefined, input.competencia);
-        const parcelas = await db.listContractRentChargesByCompetencia(ctx.user.id, input.competencia);
+        const reservas = await db.listReservations(ctx.ownerId, undefined, input.competencia);
+        const parcelas = await db.listContractRentChargesByCompetencia(ctx.ownerId, input.competencia);
 
         type Item = {
           nome: string;
@@ -1702,7 +1754,7 @@ export const appRouter = router({
         }
 
         const contractIds = Array.from(new Set(parcelas.map((p) => p.contractId)));
-        const contratosArr = await Promise.all(contractIds.map((id) => db.getLongTermContract(ctx.user.id, id)));
+        const contratosArr = await Promise.all(contractIds.map((id) => db.getLongTermContract(ctx.ownerId, id)));
         const contratoMap = new Map(contratosArr.filter((c): c is NonNullable<typeof c> => !!c).map((c) => [c.id, c]));
 
         for (const p of parcelas) {
@@ -1729,15 +1781,15 @@ export const appRouter = router({
 
     // DIMOB: relatório anual de quem alugou cada unidade (curta e longa duração) durante
     // o ano inteiro, com nome, CPF/passaporte e valor total recebido no ano por locação.
-    dimob: protectedProcedure
+    dimob: financeiroProcedure
       .input(z.object({ ano: z.string().regex(/^\d{4}$/) }))
       .query(async ({ ctx, input }) => {
         const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-        const props = await db.listProperties(ctx.user.id);
+        const props = await db.listProperties(ctx.ownerId);
         const propMap = new Map(props.map((p) => [p.id, p]));
 
-        const reservas = await db.listReservationsByYear(ctx.user.id, input.ano);
-        const parcelas = await db.listContractRentChargesByYear(ctx.user.id, input.ano);
+        const reservas = await db.listReservationsByYear(ctx.ownerId, input.ano);
+        const parcelas = await db.listContractRentChargesByYear(ctx.ownerId, input.ano);
 
         type Item = {
           nome: string;
@@ -1768,7 +1820,7 @@ export const appRouter = router({
         }
 
         const contractIds = Array.from(new Set(parcelas.map((p) => p.contractId)));
-        const contratosArr = await Promise.all(contractIds.map((id) => db.getLongTermContract(ctx.user.id, id)));
+        const contratosArr = await Promise.all(contractIds.map((id) => db.getLongTermContract(ctx.ownerId, id)));
         const contratoMap = new Map(contratosArr.filter((c): c is NonNullable<typeof c> => !!c).map((c) => [c.id, c]));
 
         for (const p of parcelas) {
@@ -1808,15 +1860,15 @@ export const appRouter = router({
      * apenas o aluguel — multa e juros somam, desconto subtrai, mas condomínio e IPTU repassados
      * ficam de fora, porque não são rendimento de locação.
      */
-    informeIr: protectedProcedure
+    informeIr: financeiroProcedure
       .input(z.object({ contractId: z.number(), ano: z.string().regex(/^\d{4}$/) }))
       .query(async ({ ctx, input }) => {
-        const contrato = await db.getLongTermContract(ctx.user.id, input.contractId);
+        const contrato = await db.getLongTermContract(ctx.ownerId, input.contractId);
         if (!contrato) throw new Error("Contrato não encontrado");
-        const imovel = await db.getProperty(ctx.user.id, contrato.propertyId);
-        const proprietario = imovel?.clientId ? await db.getClient(ctx.user.id, imovel.clientId) : null;
+        const imovel = await db.getProperty(ctx.ownerId, contrato.propertyId);
+        const proprietario = imovel?.clientId ? await db.getClient(ctx.ownerId, imovel.clientId) : null;
 
-        const parcelas = await db.listContractRentChargesRecebidasNoAno(ctx.user.id, input.ano, input.contractId);
+        const parcelas = await db.listContractRentChargesRecebidasNoAno(ctx.ownerId, input.ano, input.contractId);
 
         const meses = parcelas.map((p) => {
           const aluguel = num(p.valor);
@@ -1868,12 +1920,15 @@ export const appRouter = router({
 
   // --------------------------------------------------------- dashboard
   dashboard: router({
-    overview: protectedProcedure
+    // O painel é a porta de entrada de qualquer nível, então não pode ser fechado como as telas de
+    // resultado — em vez disso, os números financeiros saem do retorno para quem não tem acesso a
+    // eles. Contagens e alertas de vencimento continuam visíveis para todos.
+    overview: empresaProcedure
       .input(z.object({ competencia: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(async ({ ctx, input }) => {
-        const clientes = await db.listClients(ctx.user.id);
-        const props = await db.listProperties(ctx.user.id);
-        const reservas = await db.listReservations(ctx.user.id, undefined, input.competencia);
+        const clientes = await db.listClients(ctx.ownerId);
+        const props = await db.listProperties(ctx.ownerId);
+        const reservas = await db.listReservations(ctx.ownerId, undefined, input.competencia);
 
         const propMap = new Map(props.map((p) => [p.id, p]));
         let comissaoMes = 0;
@@ -1904,7 +1959,7 @@ export const appRouter = router({
 
         // Vigência dos contratos de longa duração: próximo reajuste (a cada 12 meses) e fim do contrato,
         // mostrando eventos futuros ou vencidos há até 30 dias (para não deixar passar em branco).
-        const contratosLonga = await db.listLongTermContracts(ctx.user.id);
+        const contratosLonga = await db.listLongTermContracts(ctx.ownerId);
         const propNome = (id: number) => props.find((p) => p.id === id)?.apelido ?? "—";
         const hojeStr = hoje.toISOString().slice(0, 10);
         const limiteAtrasoStr = (() => {
@@ -1932,12 +1987,14 @@ export const appRouter = router({
           diasRestantes: Math.ceil((new Date(e.data).getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24)),
         }));
 
+        const veFinanceiro = ctx.nivel === "total";
+
         return {
           totalClientes: clientes.length,
           totalImoveis: props.length,
           totalReservasMes: reservas.length,
-          receitaMes: round2(receitaMes),
-          comissaoMes: round2(comissaoMes),
+          receitaMes: veFinanceiro ? round2(receitaMes) : null,
+          comissaoMes: veFinanceiro ? round2(comissaoMes) : null,
           alertasCertificado,
           vigenciaContratos,
         };

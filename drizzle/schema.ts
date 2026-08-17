@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, date } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, unique, varchar, decimal, date } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow (administradora / usuário do SaaS).
@@ -37,6 +37,53 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+/**
+ * Quem pode operar qual empresa, e com que alcance.
+ *
+ * O sistema é multiempresa: cada cliente é uma conta dona (`users.invitedBy = null`) e os dados
+ * pertencem a ela pelo `ownerId`. Antes desta tabela, "usuário logado" e "empresa dos dados" eram
+ * a mesma coisa — o que impedia o escritório contábil de atender vários clientes e fazia o
+ * funcionário convidado entrar num sistema vazio, porque as consultas procuravam dados sob o id
+ * dele em vez do id da empresa.
+ *
+ * Agora a empresa em operação vem daqui e é revalidada a cada requisição: sem uma linha ligando o
+ * usuário à empresa, não há acesso — é isto que separa os dados de um cliente dos do outro.
+ */
+export const tenantAccess = mysqlTable(
+  "tenant_access",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    /** Quem acessa (users.id). */
+    userId: int("userId").notNull(),
+    /** Empresa acessada — o `ownerId` sob o qual os dados estão gravados (users.id do dono). */
+    tenantOwnerId: int("tenantOwnerId").notNull(),
+    /**
+     * total: enxerga e altera tudo, inclusive DRE, repasse e comissão.
+     * operacional: cadastra e edita o dia a dia, mas não vê o resultado financeiro.
+     * consulta: só visualiza, não altera nada.
+     */
+    nivel: mysqlEnum("nivel", ["total", "operacional", "consulta"]).notNull().default("total"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (t) => ({
+    // Um usuário tem no máximo um nível por empresa.
+    userTenantUnico: unique("tenant_access_user_tenant").on(t.userId, t.tenantOwnerId),
+  }),
+);
+
+export type TenantAccess = typeof tenantAccess.$inferSelect;
+export type InsertTenantAccess = typeof tenantAccess.$inferInsert;
+
+export const NIVEIS_ACESSO = ["total", "operacional", "consulta"] as const;
+export type NivelAcesso = (typeof NIVEIS_ACESSO)[number];
+
+/** Rótulos e descrições usados nas telas de cadastro e concessão de acesso. */
+export const NIVEL_ACESSO_INFO: Record<NivelAcesso, { label: string; descricao: string }> = {
+  total: { label: "Total", descricao: "Enxerga e altera tudo, inclusive DRE, repasse e comissão." },
+  operacional: { label: "Operacional", descricao: "Cadastra e edita o dia a dia, sem ver o resultado financeiro." },
+  consulta: { label: "Consulta", descricao: "Apenas visualiza; não altera nada." },
+};
 
 /**
  * Clientes proprietários dos imóveis (PF com CPF ou PJ com CNPJ).

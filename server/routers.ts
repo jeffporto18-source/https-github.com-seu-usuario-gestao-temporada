@@ -222,6 +222,11 @@ export const appRouter = router({
         const data: Record<string, unknown> = {};
         if (input.name !== undefined) data.name = input.name;
         if (input.razaoSocial !== undefined) data.razaoSocial = input.razaoSocial;
+        // Numa conta PJ o formulário edita razão social e nome do responsável, mas nunca `name` —
+        // que é o campo exibido na barra lateral e nas listas. Sem sincronizar aqui, corrigir a
+        // razão social não mudava nada do que aparece na tela, e o nome antigo ficava para sempre.
+        if (ctx.user.tipoCadastro === "pj" && input.razaoSocial) data.name = input.razaoSocial.trim();
+        if (ctx.user.tipoCadastro === "pf" && input.nomeResponsavel) data.name = input.nomeResponsavel.trim();
         if (input.cnpj !== undefined) data.cnpj = input.cnpj.replace(/\D/g, "");
         if (input.cpfResponsavel !== undefined) data.cpfResponsavel = input.cpfResponsavel.replace(/\D/g, "");
         if (input.nomeResponsavel !== undefined) data.nomeResponsavel = input.nomeResponsavel;

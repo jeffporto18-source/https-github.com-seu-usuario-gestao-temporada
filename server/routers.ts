@@ -1980,6 +1980,7 @@ export const appRouter = router({
         if (!contrato) throw new Error("Contrato não encontrado");
         const imovel = await db.getProperty(ctx.ownerId, contrato.propertyId);
         const proprietario = imovel?.clientId ? await db.getClient(ctx.ownerId, imovel.clientId) : null;
+        const empresa = await db.getUserById(ctx.ownerId);
 
         const parcelas = await db.listContractRentChargesRecebidasNoAno(ctx.ownerId, input.ano, input.contractId);
 
@@ -2014,9 +2015,13 @@ export const appRouter = router({
           },
           imovel: imovel ? { apelido: imovel.apelido, endereco: imovel.endereco } : null,
           proprietario: proprietario ? { nome: proprietario.nome, cpfCnpj: proprietario.cpfCnpj } : null,
+          // A administradora do contrato é a EMPRESA que administra o imóvel, não quem emitiu o
+          // documento. Um contador gerando o informe de um cliente estaria assinando como
+          // administradora daquela locação, o que não é verdade — e isso vai impresso num papel
+          // entregue ao inquilino e ao proprietário para declarar imposto.
           administradora: {
-            razaoSocial: ctx.user.razaoSocial || ctx.user.name,
-            cnpj: ctx.user.cnpj,
+            razaoSocial: empresa?.razaoSocial || empresa?.name || null,
+            cnpj: empresa?.cnpj ?? null,
           },
           meses,
           totalAluguel: somar("aluguel"),

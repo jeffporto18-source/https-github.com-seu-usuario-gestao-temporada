@@ -1,4 +1,5 @@
 import { trpc, type RouterOutputs } from "@/lib/trpc";
+import { useEmpresaUserType } from "@/hooks/useEmpresa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,8 +66,10 @@ const TIPO_ADMIN_LABELS: Record<PropertyForm["tipoAdministracao"], string> = {
 export default function Imoveis() {
   const utils = trpc.useUtils();
   const { data: imoveis, isLoading } = trpc.properties.list.useQuery();
-  const { data: me } = trpc.auth.me.useQuery();
-  const isHolding = me?.userType === "holding";
+  // O perfil é da EMPRESA aberta, não de quem está logado — um contador operando um cliente
+  // holding não é holding ele mesmo, e usar o perfil dele aqui reativava um bug já corrigido em
+  // outras telas (painel, menu, cabeçalho).
+  const isHolding = useEmpresaUserType() === "holding";
   const { data: clientes } = trpc.clients.list.useQuery(undefined, { enabled: !isHolding });
   const { data: imobiliarias } = trpc.imobiliarias.list.useQuery();
   const { data: gestores } = trpc.curtaManagers.list.useQuery();

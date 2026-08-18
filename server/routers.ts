@@ -390,7 +390,10 @@ export const appRouter = router({
         empresas.map(async (e) => ({
           id: e.id,
           nome: e.razaoSocial || e.nomeResponsavel || e.name || e.email || `Empresa ${e.id}`,
+          razaoSocial: e.razaoSocial,
+          cnpj: e.cnpj,
           email: e.email,
+          telefone: e.telefone,
           userType: e.userType,
           acessos: (await db.listAccessOfTenant(e.id)).map((a) => ({
             userId: a.userId,
@@ -402,6 +405,49 @@ export const appRouter = router({
         })),
       );
     }),
+
+    /**
+     * Cadastra uma empresa cliente nova sem passar pelo formulário público — o escritório fica
+     * logado o tempo todo, e o cadastro público exigiria sair da própria sessão para usá-lo.
+     *
+     * A empresa nasce visível para o escritório automaticamente (listTenants não filtra por
+     * tenant_access quando role=admin), então não é preciso conceder acesso depois de criar.
+     */
+    criarEmpresa: adminProcedure
+      .input(
+        z.object({
+          razaoSocial: z.string().min(1),
+          cnpj: z.string().min(11),
+          email: z.string().email(),
+          telefone: z.string().optional(),
+          nomeResponsavel: z.string().optional(),
+          userType: z.enum(["administradora", "proprietario", "holding", "admin_airbnb", "gestor_temporada_pj"]),
+          senhaInicial: z.string().min(6),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const id = await db.createTenant(input);
+        return { success: true, id };
+      }),
+
+    /** Corrige os dados de cadastro de uma empresa cliente — o caso comum é um e-mail de teste virando o oficial. */
+    editarEmpresa: adminProcedure
+      .input(
+        z.object({
+          empresaId: z.number(),
+          razaoSocial: z.string().min(1).optional(),
+          cnpj: z.string().min(11).optional(),
+          email: z.string().email().optional(),
+          telefone: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { empresaId, ...dados } = input;
+        const dono = await db.getUserById(empresaId);
+        if (!dono || dono.invitedBy !== null) throw new Error("Empresa não encontrada.");
+        await db.updateTenant(empresaId, dados);
+        return { success: true };
+      }),
 
     /**
      * Quem pode receber acesso: apenas os funcionários do escritório.

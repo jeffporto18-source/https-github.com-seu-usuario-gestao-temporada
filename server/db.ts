@@ -533,14 +533,86 @@ export async function listTenants() {
     .select({
       id: users.id,
       razaoSocial: users.razaoSocial,
+      cnpj: users.cnpj,
       nomeResponsavel: users.nomeResponsavel,
       name: users.name,
       email: users.email,
+      telefone: users.telefone,
       userType: users.userType,
     })
     .from(users)
     .where(and(isNull(users.invitedBy), ne(users.role, "admin")))
     .orderBy(users.razaoSocial);
+}
+
+/**
+ * Cadastra uma empresa cliente nova, pelo escritório, sem passar pelo formulário público de
+ * cadastro — reaproveita a mesma forma de gravar dados que /api/auth/register usa.
+ */
+export async function createTenant(data: {
+  razaoSocial: string;
+  cnpj: string;
+  email: string;
+  telefone?: string;
+  nomeResponsavel?: string;
+  userType: string;
+  senhaInicial: string;
+}) {
+  const db = await requireDb();
+  const bcrypt = await import("bcryptjs");
+  const { nanoid } = await import("nanoid");
+
+  const email = data.email.toLowerCase().trim();
+  const existente = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+  if (existente.length > 0) throw new Error("Este e-mail já está cadastrado.");
+
+  const passwordHash = await bcrypt.hash(data.senhaInicial, 12);
+  const openId = `local_${nanoid(20)}`;
+
+  const inserido = await db.insert(users).values({
+    openId,
+    name: data.razaoSocial.trim(),
+    email,
+    passwordHash,
+    loginMethod: "email",
+    tipoCadastro: "pj",
+    userType: data.userType as InsertUser["userType"],
+    cnpj: data.cnpj.replace(/\D/g, ""),
+    razaoSocial: data.razaoSocial.trim(),
+    nomeResponsavel: data.nomeResponsavel?.trim() || null,
+    telefone: data.telefone ? data.telefone.replace(/\D/g, "") : null,
+    lastSignedIn: new Date(),
+  });
+  const novoId = (inserido as unknown as { insertId: number }[])[0]?.insertId
+    ?? (inserido as unknown as { insertId: number }).insertId;
+
+  // Sem esta linha o dono não teria acesso à própria empresa — mesma regra do cadastro público.
+  await db.insert(tenantAccess).values({ userId: novoId, tenantOwnerId: novoId, nivel: "total" });
+
+  return novoId;
+}
+
+/** Corrige dados de cadastro de uma empresa — o caso comum é um e-mail de teste virando o oficial. */
+export async function updateTenant(
+  empresaId: number,
+  data: { razaoSocial?: string; cnpj?: string; email?: string; telefone?: string },
+) {
+  const db = await requireDb();
+  const values: Partial<InsertUser> = {};
+  if (data.razaoSocial !== undefined) {
+    values.razaoSocial = data.razaoSocial.trim();
+    values.name = data.razaoSocial.trim(); // mesma sincronia que profile.update já faz numa conta PJ
+  }
+  if (data.cnpj !== undefined) values.cnpj = data.cnpj.replace(/\D/g, "");
+  if (data.telefone !== undefined) values.telefone = data.telefone.replace(/\D/g, "");
+  if (data.email !== undefined) {
+    const email = data.email.toLowerCase().trim();
+    const emUso = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    if (emUso.length > 0 && emUso[0].id !== empresaId) throw new Error("Este e-mail já está em uso por outra conta.");
+    values.email = email;
+  }
+  if (Object.keys(values).length === 0) return;
+  await db.update(users).set(values).where(eq(users.id, empresaId));
 }
 
 // ------------------------------------------------------- plano de contas (chart accounts)

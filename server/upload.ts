@@ -1,10 +1,42 @@
 import type { Express, Request, Response } from "express";
 import multer from "multer";
+import { TRPCError } from "@trpc/server";
 import { sdk } from "./_core/sdk";
 import { storagePut } from "./storage";
 import * as db from "./db";
+import { resolverEmpresa } from "./tenant";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB
+
+/**
+ * Autentica e resolve a EMPRESA em operação — não o usuário logado — para as rotas de upload.
+ *
+ * Estas rotas rodam em Express puro (multipart/form-data, que o tRPC não lida bem) e por isso
+ * ficaram de fora quando as demais 71 rotas foram convertidas para multiempresa: continuavam
+ * buscando o registro sob `user.id`. Um contador anexando um documento num cliente recebia
+ * "não encontrado" para um imóvel ou contrato que existia — só não sob a conta dele.
+ *
+ * Devolve `null` depois de já ter respondido (401/403/409), para o chamador só continuar quando
+ * o retorno não for nulo.
+ */
+async function resolverContexto(req: Request, res: Response): Promise<{ ownerId: number; podeEscrever: boolean } | null> {
+  const user = await sdk.authenticateRequest(req);
+  if (!user) {
+    res.status(401).json({ error: "Não autenticado." });
+    return null;
+  }
+  try {
+    const acesso = await resolverEmpresa(user.id, req.headers.cookie);
+    return { ownerId: acesso.tenantOwnerId, podeEscrever: acesso.nivel !== "consulta" };
+  } catch (e) {
+    if (e instanceof TRPCError && e.code === "PRECONDITION_FAILED") {
+      res.status(409).json({ error: "Escolha a empresa antes de enviar arquivos." });
+    } else {
+      res.status(403).json({ error: "Sua conta não tem acesso a nenhuma empresa." });
+    }
+    return null;
+  }
+}
 
 export function registerUploadRoutes(app: Express) {
   /**
@@ -14,9 +46,10 @@ export function registerUploadRoutes(app: Express) {
    */
   app.post("/api/upload/contrato", upload.single("file"), async (req: Request, res: Response) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user) {
-        res.status(401).json({ error: "Não autenticado." });
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar documentos." });
         return;
       }
 
@@ -37,8 +70,8 @@ export function registerUploadRoutes(app: Express) {
         return;
       }
 
-      // Verify property belongs to user
-      const prop = await db.getProperty(user.id, propertyId);
+      // Verify property belongs to the operated company
+      const prop = await db.getProperty(ctx.ownerId, propertyId);
       if (!prop) {
         res.status(404).json({ error: "Imóvel não encontrado." });
         return;
@@ -49,7 +82,7 @@ export function registerUploadRoutes(app: Express) {
       const { key, url } = await storagePut(relKey, file.buffer, "application/pdf");
 
       // Update property record
-      await db.updateProperty(user.id, propertyId, { contratoUrl: url, contratoKey: key });
+      await db.updateProperty(ctx.ownerId, propertyId, { contratoUrl: url, contratoKey: key });
 
       res.json({ contratoUrl: url, contratoKey: key });
     } catch (error: any) {
@@ -73,9 +106,10 @@ export function registerUploadRoutes(app: Express) {
 
   app.post("/api/upload/documento-reserva", upload.single("file"), async (req: Request, res: Response) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user) {
-        res.status(401).json({ error: "Não autenticado." });
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar documentos." });
         return;
       }
 
@@ -97,7 +131,7 @@ export function registerUploadRoutes(app: Express) {
         return;
       }
 
-      const reserva = await db.getReservation(user.id, reservationId);
+      const reserva = await db.getReservation(ctx.ownerId, reservationId);
       if (!reserva) {
         res.status(404).json({ error: "Reserva não encontrada." });
         return;
@@ -106,7 +140,7 @@ export function registerUploadRoutes(app: Express) {
       const relKey = `documentos/reserva_${reservationId}.${ext}`;
       const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
 
-      await db.updateReservation(user.id, reservationId, { documentoUrl: url, documentoKey: key });
+      await db.updateReservation(ctx.ownerId, reservationId, { documentoUrl: url, documentoKey: key });
 
       res.json({ documentoUrl: url, documentoKey: key });
     } catch (error: any) {
@@ -123,9 +157,10 @@ export function registerUploadRoutes(app: Express) {
    */
   app.post("/api/upload/garantia-contrato", upload.single("file"), async (req: Request, res: Response) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user) {
-        res.status(401).json({ error: "Não autenticado." });
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar documentos." });
         return;
       }
 
@@ -147,7 +182,7 @@ export function registerUploadRoutes(app: Express) {
         return;
       }
 
-      const contrato = await db.getLongTermContract(user.id, contractId);
+      const contrato = await db.getLongTermContract(ctx.ownerId, contractId);
       if (!contrato) {
         res.status(404).json({ error: "Contrato não encontrado." });
         return;
@@ -156,7 +191,7 @@ export function registerUploadRoutes(app: Express) {
       const relKey = `documentos/garantia_contrato_${contractId}.${ext}`;
       const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
 
-      await db.updateLongTermContract(user.id, contractId, { garantiaDocumentoUrl: url, garantiaDocumentoKey: key });
+      await db.updateLongTermContract(ctx.ownerId, contractId, { garantiaDocumentoUrl: url, garantiaDocumentoKey: key });
 
       res.json({ garantiaDocumentoUrl: url, garantiaDocumentoKey: key });
     } catch (error: any) {
@@ -173,9 +208,10 @@ export function registerUploadRoutes(app: Express) {
    */
   app.post("/api/upload/contrato-locacao", upload.single("file"), async (req: Request, res: Response) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user) {
-        res.status(401).json({ error: "Não autenticado." });
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar documentos." });
         return;
       }
 
@@ -197,7 +233,7 @@ export function registerUploadRoutes(app: Express) {
         return;
       }
 
-      const contrato = await db.getLongTermContract(user.id, contractId);
+      const contrato = await db.getLongTermContract(ctx.ownerId, contractId);
       if (!contrato) {
         res.status(404).json({ error: "Contrato não encontrado." });
         return;
@@ -206,7 +242,7 @@ export function registerUploadRoutes(app: Express) {
       const relKey = `documentos/contrato_locacao_${contractId}.${ext}`;
       const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
 
-      await db.updateLongTermContract(user.id, contractId, { contratoLocacaoUrl: url, contratoLocacaoKey: key });
+      await db.updateLongTermContract(ctx.ownerId, contractId, { contratoLocacaoUrl: url, contratoLocacaoKey: key });
 
       res.json({ contratoLocacaoUrl: url, contratoLocacaoKey: key });
     } catch (error: any) {
@@ -223,9 +259,10 @@ export function registerUploadRoutes(app: Express) {
    */
   app.post("/api/upload/apolice-seguro", upload.single("file"), async (req: Request, res: Response) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user) {
-        res.status(401).json({ error: "Não autenticado." });
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar documentos." });
         return;
       }
 
@@ -247,7 +284,7 @@ export function registerUploadRoutes(app: Express) {
         return;
       }
 
-      const contrato = await db.getLongTermContract(user.id, contractId);
+      const contrato = await db.getLongTermContract(ctx.ownerId, contractId);
       if (!contrato) {
         res.status(404).json({ error: "Contrato não encontrado." });
         return;
@@ -256,7 +293,7 @@ export function registerUploadRoutes(app: Express) {
       const relKey = `documentos/apolice_seguro_${contractId}.${ext}`;
       const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
 
-      await db.updateLongTermContract(user.id, contractId, { apoliceSeguroUrl: url, apoliceSeguroKey: key });
+      await db.updateLongTermContract(ctx.ownerId, contractId, { apoliceSeguroUrl: url, apoliceSeguroKey: key });
 
       res.json({ apoliceSeguroUrl: url, apoliceSeguroKey: key });
     } catch (error: any) {
@@ -273,9 +310,10 @@ export function registerUploadRoutes(app: Express) {
    */
   app.post("/api/upload/renovacao-contrato", upload.single("file"), async (req: Request, res: Response) => {
     try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user) {
-        res.status(401).json({ error: "Não autenticado." });
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar documentos." });
         return;
       }
 
@@ -297,7 +335,7 @@ export function registerUploadRoutes(app: Express) {
         return;
       }
 
-      const contrato = await db.getLongTermContract(user.id, contractId);
+      const contrato = await db.getLongTermContract(ctx.ownerId, contractId);
       if (!contrato) {
         res.status(404).json({ error: "Contrato não encontrado." });
         return;
@@ -306,7 +344,7 @@ export function registerUploadRoutes(app: Express) {
       const relKey = `documentos/renovacao_contrato_${contractId}.${ext}`;
       const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
 
-      await db.updateLongTermContract(user.id, contractId, { renovacaoContratoUrl: url, renovacaoContratoKey: key });
+      await db.updateLongTermContract(ctx.ownerId, contractId, { renovacaoContratoUrl: url, renovacaoContratoKey: key });
 
       res.json({ renovacaoContratoUrl: url, renovacaoContratoKey: key });
     } catch (error: any) {

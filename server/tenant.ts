@@ -51,7 +51,14 @@ export function escolherAcesso<T extends { tenantOwnerId: number }>(
   return { ok: false, motivo: "precisa_escolher" };
 }
 
-async function resolverEmpresa(userId: number, cookieHeader: string | undefined) {
+/**
+ * Mesma resolução de empresa das rotas tRPC, exportada para as rotas de upload — que rodam em
+ * Express puro (multipart/form-data, que o tRPC não lida bem) e por isso ficaram de fora da
+ * conversão para multiempresa: usavam `user.id` como se fosse a empresa, e um contador anexando
+ * documento num cliente recebia "não encontrado" para um imóvel que existia, só não sob a conta
+ * dele.
+ */
+export async function resolverEmpresa(userId: number, cookieHeader: string | undefined) {
   const acessos = await db.listTenantAccess(userId);
   const decisao = escolherAcesso(acessos, lerCookie(cookieHeader, TENANT_COOKIE));
 

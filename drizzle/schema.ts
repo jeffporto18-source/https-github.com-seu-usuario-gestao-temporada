@@ -227,6 +227,10 @@ export const reservations = mysqlTable("reservations", {
   estrangeiro: int("estrangeiro").notNull().default(0), // 0 = não, 1 = sim
   documentoUrl: varchar("documentoUrl", { length: 500 }),
   documentoKey: varchar("documentoKey", { length: 255 }),
+  // Confirmação de recebimento: quando o valor do Airbnb efetivamente caiu na conta e quanto
+  // (pode confirmar o valor líquido já informado ou ajustar, se o repasse do Airbnb veio diferente).
+  dataRecebimento: date("dataRecebimento", { mode: "string" }),
+  valorRecebido: decimal("valorRecebido", { precision: 12, scale: 2 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

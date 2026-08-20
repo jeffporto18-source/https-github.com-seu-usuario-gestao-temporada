@@ -260,6 +260,13 @@
       "when": 1786830301121,
       "tag": "0036_add_contrato_imobiliaria",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1786830361121,
+      "tag": "0037_add_recebimento_reserva",
+      "breakpoints": true
     }
   ]
 }

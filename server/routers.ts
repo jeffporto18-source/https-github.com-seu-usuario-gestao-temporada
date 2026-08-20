@@ -1564,6 +1564,17 @@ export const appRouter = router({
       }),
     delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(({ ctx, input }) => db.deleteReservation(ctx.ownerId, input.id)),
 
+    // Confirma que o valor caiu na conta — o mesmo valor líquido informado no cadastro
+    // (Confirmar valor Airbnb) ou um valor diferente (Alterar valor), com a data do recebimento.
+    marcarRecebimento: escritaProcedure
+      .input(z.object({ id: z.number(), dataRecebimento: z.string(), valorRecebido: z.number().min(0) }))
+      .mutation(({ ctx, input }) =>
+        db.updateReservation(ctx.ownerId, input.id, {
+          dataRecebimento: input.dataRecebimento,
+          valorRecebido: String(input.valorRecebido),
+        }),
+      ),
+
     // Importação de CSV do Airbnb
     importCsv: escritaProcedure
       .input(

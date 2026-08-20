@@ -14,9 +14,9 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, FileText, CalendarDays, CheckCircle2, Loader2, Pencil, Upload, ExternalLink, User } from "lucide-react";
+import { Plus, Trash2, FileText, CalendarDays, CheckCircle2, Loader2, Pencil, Upload, ExternalLink, User, Wallet } from "lucide-react";
 import { brl, competenciaAtual, formatCpfCnpj, formatDate } from "@/lib/format";
 import { PageHeader, EmptyState } from "./Clientes";
 import { UnitPeriodFilter } from "@/components/UnitPeriodFilter";
@@ -334,6 +334,7 @@ function ReservaCard({
     valorBruto: string;
     taxaLimpeza: string;
     taxaAirbnb: string;
+    valorLiquidoRecebido: string;
     checkin: string;
     checkout: string;
     noites: number;
@@ -343,6 +344,8 @@ function ReservaCard({
     passaporteHospede: string | null;
     estrangeiro: number;
     documentoUrl: string | null;
+    dataRecebimento: string | null;
+    valorRecebido: string | null;
   };
   onDelete: () => void;
   onEmitir: () => void;
@@ -356,6 +359,7 @@ function ReservaCard({
 
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [recebimentoOpen, setRecebimentoOpen] = useState(false);
 
   const handleDocUpload = async (file: File) => {
     setUploadingDoc(true);
@@ -399,11 +403,18 @@ function ReservaCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {emitida ? (
             <Badge className="bg-primary/10 text-primary"><CheckCircle2 className="mr-1 h-3 w-3" /> Nota fiscal emitida</Badge>
           ) : (
             <Badge variant="secondary">Pendente de nota fiscal</Badge>
+          )}
+          {reserva.dataRecebimento ? (
+            <Badge className="bg-primary/10 text-primary">
+              <Wallet className="mr-1 h-3 w-3" /> Recebido em {fmt(reserva.dataRecebimento)}
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Recebimento pendente</Badge>
           )}
         </div>
       </div>
@@ -422,6 +433,14 @@ function ReservaCard({
         <Button size="sm" variant="outline" className="text-muted-foreground hover:text-primary" onClick={onEdit}>
           <Pencil className="mr-1 h-4 w-4" /> Editar
         </Button>
+        <Button size="sm" variant="outline" className="text-muted-foreground hover:text-primary" onClick={() => setRecebimentoOpen(true)}>
+          <Wallet className="mr-1 h-4 w-4" /> Recebimento
+        </Button>
+        <RecebimentoDialog
+          open={recebimentoOpen}
+          onOpenChange={setRecebimentoOpen}
+          reserva={reserva}
+        />
         <input
           ref={fileInputRef}
           type="file"
@@ -458,6 +477,98 @@ function ReservaCard({
         </Button>
       </div>
     </Card>
+  );
+}
+
+function RecebimentoDialog({
+  open,
+  onOpenChange,
+  reserva,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  reserva: {
+    id: number;
+    valorLiquidoRecebido: string;
+    dataRecebimento: string | null;
+    valorRecebido: string | null;
+  };
+}) {
+  const utils = trpc.useUtils();
+  const valorAirbnb = Number(reserva.valorLiquidoRecebido);
+  const [modo, setModo] = useState<"confirmar" | "alterar">("confirmar");
+  const [valor, setValor] = useState(String(valorAirbnb));
+  const [data, setData] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      const jaConfirmado = reserva.valorRecebido != null && Number(reserva.valorRecebido) !== valorAirbnb;
+      setModo(jaConfirmado ? "alterar" : "confirmar");
+      setValor(reserva.valorRecebido != null ? String(Number(reserva.valorRecebido)) : String(valorAirbnb));
+      setData(reserva.dataRecebimento || new Date().toISOString().slice(0, 10));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, reserva.id]);
+
+  const marcar = trpc.reservations.marcarRecebimento.useMutation({
+    onSuccess: () => { utils.reservations.list.invalidate(); onOpenChange(false); toast.success("Recebimento confirmado."); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const confirmar = () => {
+    if (!data) { toast.error("Informe a data do recebimento."); return; }
+    marcar.mutate({
+      id: reserva.id,
+      dataRecebimento: data,
+      valorRecebido: modo === "confirmar" ? valorAirbnb : Number(valor) || 0,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="font-serif">Recebimento</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <div className="rounded-lg border border-border bg-secondary/50 px-3 py-2 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Valor líquido do Airbnb</span>
+            <span className="tabular-nums font-medium">{brl(valorAirbnb)}</span>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>O valor recebido confere?</Label>
+            <RadioGroup
+              className="flex items-center gap-4 h-9"
+              value={modo}
+              onValueChange={(v) => { setModo(v as "confirmar" | "alterar"); if (v === "confirmar") setValor(String(valorAirbnb)); }}
+            >
+              <div className="flex items-center gap-1.5">
+                <RadioGroupItem value="confirmar" id="recebimento-confirmar" />
+                <Label htmlFor="recebimento-confirmar" className="font-normal cursor-pointer">Confirmar valor Airbnb</Label>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <RadioGroupItem value="alterar" id="recebimento-alterar" />
+                <Label htmlFor="recebimento-alterar" className="font-normal cursor-pointer">Alterar valor</Label>
+              </div>
+            </RadioGroup>
+          </div>
+          {modo === "alterar" && (
+            <div className="grid gap-1.5">
+              <Label>Valor efetivamente recebido (R$)</Label>
+              <Input autoFocus value={valor} onChange={(e) => setValor(e.target.value)} type="number" step="0.01" min="0" />
+            </div>
+          )}
+          <div className="grid gap-1.5">
+            <Label>Data do recebimento</Label>
+            <DateInput value={data} onChange={setData} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="bg-background" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={confirmar} disabled={marcar.isPending}>Confirmar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -461,17 +461,20 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
             <DropdownMenuItem onClick={onEdit}>
               <Pencil className="mr-2 h-3.5 w-3.5" /> Editar
             </DropdownMenuItem>
-            {/* Para longa duração o contrato tem tela própria (aba Contratos, com "Contrato de
-                locação" e os demais anexos) — anexar aqui também seria o mesmo documento em dois
-                lugares. Para curta temporada não existe essa tela, então o anexo continua aqui. */}
+            {/* Para longa duração o contrato de locação passa a ser anexado na aba Contratos, não
+                mais aqui — evita a mesma informação em dois lugares para anexos NOVOS. Mas "Ver
+                contrato" continua disponível se já houver algo anexado no imóvel: são documentos
+                reais, e boa parte dos imóveis de longa ainda não tem contrato cadastrado (logo,
+                nenhum lugar para onde levar o arquivo) — escondê-lo teria travado o acesso a
+                contratos de locação já assinados e guardados aqui. */}
             {!isLonga && (
               <DropdownMenuItem disabled={uploading} onClick={onUpload}>
                 <Upload className="mr-2 h-3.5 w-3.5" /> {uploading ? "Enviando..." : p.contratoUrl ? "Substituir contrato" : "Anexar contrato"}
               </DropdownMenuItem>
             )}
-            {!isLonga && p.contratoUrl && (
+            {p.contratoUrl && (
               <DropdownMenuItem onClick={() => window.open(p.contratoUrl!, "_blank", "noopener,noreferrer")}>
-                <ExternalLink className="mr-2 h-3.5 w-3.5" /> Ver contrato
+                <ExternalLink className="mr-2 h-3.5 w-3.5" /> Ver contrato{isLonga ? " (anexo antigo)" : ""}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => setCustosOpen(true)}>

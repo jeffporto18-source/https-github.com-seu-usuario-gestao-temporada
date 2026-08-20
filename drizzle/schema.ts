@@ -201,6 +201,36 @@ export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type InsertLedgerEntry = typeof ledgerEntries.$inferInsert;
 
 /**
+ * Ocorrência mensal de um lançamento manual (receita/despesa) — o "contas a pagar/receber" de
+ * verdade: uma linha por mês, com baixa (data + valor pago) e comprovante próprios. Gerada a
+ * partir de `ledgerEntries` (o cadastro recorrente) quando ele é criado ou editado; meses já
+ * pagos nunca são regenerados, para não perder a baixa nem o comprovante anexado.
+ */
+export const ledgerCharges = mysqlTable("ledger_charges", {
+  id: int("id").autoincrement().primaryKey(),
+  ownerId: int("ownerId").notNull(),
+  ledgerEntryId: int("ledgerEntryId").notNull(),
+  propertyId: int("propertyId").notNull(),
+  grupo: mysqlEnum("grupo", ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).notNull(),
+  categoria: varchar("categoria", { length: 300 }),
+  descricao: varchar("descricao", { length: 300 }),
+  contraparte: varchar("contraparte", { length: 150 }),
+  competencia: varchar("competencia", { length: 7 }).notNull(), // "AAAA-MM"
+  dataVencimento: date("dataVencimento", { mode: "string" }).notNull(),
+  valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
+  status: mysqlEnum("status", ["aberto", "pago", "cancelado"]).notNull().default("aberto"),
+  dataPagamento: date("dataPagamento", { mode: "string" }),
+  valorPago: decimal("valorPago", { precision: 12, scale: 2 }),
+  comprovanteUrl: varchar("comprovanteUrl", { length: 500 }),
+  comprovanteKey: varchar("comprovanteKey", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LedgerCharge = typeof ledgerCharges.$inferSelect;
+export type InsertLedgerCharge = typeof ledgerCharges.$inferInsert;
+
+/**
  * Reservas por unidade.
  */
 export const reservations = mysqlTable("reservations", {

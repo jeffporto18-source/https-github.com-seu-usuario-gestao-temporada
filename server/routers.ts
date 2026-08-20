@@ -71,6 +71,43 @@ function calcularVencimento(competencia: string, dia: number): string {
   return `${proxima}-${String(diaAjustado).padStart(2, "0")}`;
 }
 
+/** Data dentro do PRÓPRIO mês da competência (diferente do aluguel, que cobra postecipado). */
+function vencimentoNaCompetencia(competencia: string, dia: number): string {
+  const [y, m] = competencia.split("-").map(Number);
+  const ultimoDiaDoMes = new Date(y, m, 0).getDate();
+  const diaAjustado = Math.min(dia, ultimoDiaDoMes);
+  return `${competencia}-${String(diaAjustado).padStart(2, "0")}`;
+}
+
+/**
+ * Gera as ocorrências mensais (ledgerCharges) "em aberto" que faltam para cobrir o período do
+ * lançamento — o "contas a pagar/receber" de fato. Nunca toca nos meses já pagos ou cancelados:
+ * apaga só os "aberto" e recria a partir do cadastro atualizado, preservando baixa e comprovante.
+ */
+async function sincronizarLedgerCharges(ownerId: number, entry: NonNullable<Awaited<ReturnType<typeof db.getLedgerEntry>>>) {
+  if (entry.grupo === "aporte_capital") return; // Aportes não têm baixa/comprovante — fora do escopo de Contas a Pagar/Receber.
+  const existentes = await db.listLedgerCharges(ownerId, { ledgerEntryId: entry.id });
+  const competenciasJaResolvidas = new Set(existentes.filter((c) => c.status !== "aberto").map((c) => c.competencia));
+  await db.deleteLedgerChargesAbertas(ownerId, entry.id);
+  for (let i = 0; i < entry.qtdMeses; i++) {
+    const competencia = addMonthsToCompetencia(entry.competenciaInicio, i);
+    if (competenciasJaResolvidas.has(competencia)) continue;
+    await db.createLedgerCharge({
+      ownerId,
+      ledgerEntryId: entry.id,
+      propertyId: entry.propertyId,
+      grupo: entry.grupo,
+      categoria: entry.categoria,
+      descricao: entry.descricao,
+      contraparte: entry.contraparte,
+      competencia,
+      dataVencimento: vencimentoNaCompetencia(competencia, entry.dia),
+      valor: entry.valor,
+      status: "aberto",
+    });
+  }
+}
+
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 const costResponsibilitySchema = z.enum(["proprietario", "inquilino_direto", "inquilino_via_repasse"]);
@@ -774,7 +811,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const { conta, nome } = await resolveChartAccount(ctx.ownerId, input.chartAccountId, CHART_ACCOUNT_GRUPOS);
-        return db.createLedgerEntry({
+        const id = await db.createLedgerEntry({
           ownerId: ctx.ownerId,
           propertyId: input.propertyId,
           chartAccountId: conta.id,
@@ -788,6 +825,9 @@ export const appRouter = router({
           qtdMeses: input.qtdMeses,
           observacao: input.observacao || null,
         });
+        const entry = await db.getLedgerEntry(ctx.ownerId, id);
+        if (entry) await sincronizarLedgerCharges(ctx.ownerId, entry);
+        return { id };
       }),
     update: escritaProcedure
       .input(
@@ -815,19 +855,53 @@ export const appRouter = router({
           const { conta, nome } = await resolveChartAccount(ctx.ownerId, chartAccountId, CHART_ACCOUNT_GRUPOS);
           contaFields = { chartAccountId: conta.id, grupo: conta.grupo, categoria: nome };
         }
-        return db.updateLedgerEntry(ctx.ownerId, id, {
+        await db.updateLedgerEntry(ctx.ownerId, id, {
           ...rest,
           ...contaFields,
           ...(valor !== undefined ? { valor: String(valor) } : {}),
         });
+        const atualizado = await db.getLedgerEntry(ctx.ownerId, id);
+        if (atualizado) await sincronizarLedgerCharges(ctx.ownerId, atualizado);
       }),
     delete: escritaProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
       const entry = await db.getLedgerEntry(ctx.ownerId, input.id);
       if (entry && (entry.reservationId || entry.contractRentChargeId || entry.propertyCostId)) {
         throw new Error("Este lançamento foi gerado automaticamente por uma reserva, contrato ou custo do imóvel e não pode ser excluído aqui.");
       }
+      if (await db.existeLedgerChargePago(ctx.ownerId, input.id)) {
+        throw new Error("Este cadastro tem mês já baixado (com comprovante). Cancele a baixa antes de excluir, se realmente não deveria existir.");
+      }
+      await db.deleteLedgerChargesByEntry(ctx.ownerId, input.id);
       return db.deleteLedgerEntry(ctx.ownerId, input.id);
     }),
+  }),
+
+  // ----------------------------------------- ledger charges (contas a pagar/receber: baixa + comprovante)
+  ledgerCharges: router({
+    list: empresaProcedure
+      .input(
+        z.object({
+          propertyId: z.number().optional(),
+          grupo: z.enum(["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"]).optional(),
+          status: z.enum(["aberto", "pago", "cancelado"]).optional(),
+        }),
+      )
+      .query(({ ctx, input }) => db.listLedgerCharges(ctx.ownerId, input)),
+    pagar: escritaProcedure
+      .input(z.object({ id: z.number(), valorPago: z.number().min(0), dataPagamento: z.string() }))
+      .mutation(({ ctx, input }) =>
+        db.updateLedgerCharge(ctx.ownerId, input.id, {
+          status: "pago",
+          valorPago: String(input.valorPago),
+          dataPagamento: input.dataPagamento,
+        }),
+      ),
+    reabrir: escritaProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ ctx, input }) => db.updateLedgerCharge(ctx.ownerId, input.id, { status: "aberto", valorPago: null, dataPagamento: null })),
+    cancelar: escritaProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(({ ctx, input }) => db.updateLedgerCharge(ctx.ownerId, input.id, { status: "cancelado" })),
   }),
 
   // --------------------------------------------------------- guarantee types

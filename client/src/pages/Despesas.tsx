@@ -3,8 +3,8 @@ import LancamentoManager from "@/components/LancamentoManager";
 export default function Despesas() {
   return (
     <LancamentoManager
-      titulo="Despesas"
-      subtitulo="Despesas fixas e variáveis por imóvel, classificadas no plano de contas. Alimenta a DRE."
+      titulo="Contas a Pagar"
+      subtitulo="Cadastro das despesas por imóvel, classificadas no plano de contas. A baixa (pago, data e comprovante) é feita na aba Relatório."
       grupos={["despesa_fixa", "despesa_variavel"]}
       contraparteLabel="Fornecedor"
       contraparteholder="Ex.: Empresa de limpeza"

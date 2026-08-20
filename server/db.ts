@@ -6,6 +6,7 @@ import {
   clients,
   properties,
   ledgerEntries,
+  ledgerCharges,
   reservations,
   invoices,
   chartAccounts,
@@ -22,6 +23,7 @@ import {
   InsertClient,
   InsertProperty,
   InsertLedgerEntry,
+  InsertLedgerCharge,
   InsertReservation,
   InsertInvoice,
   InsertChartAccount,
@@ -235,6 +237,56 @@ export async function updateLedgerEntry(ownerId: number, id: number, data: Parti
 export async function deleteLedgerEntry(ownerId: number, id: number) {
   const db = await requireDb();
   await db.delete(ledgerEntries).where(and(eq(ledgerEntries.ownerId, ownerId), eq(ledgerEntries.id, id)));
+}
+
+// --------------------------------------------------------- ledger charges (contas a pagar/receber)
+/** Ocorrências mensais de um lançamento manual, com baixa e comprovante próprios. */
+export async function listLedgerCharges(
+  ownerId: number,
+  filtros?: { ledgerEntryId?: number; propertyId?: number; grupo?: "despesa_fixa" | "despesa_variavel" | "receita" | "aporte_capital"; status?: "aberto" | "pago" | "cancelado" },
+) {
+  const db = await requireDb();
+  const conds = [eq(ledgerCharges.ownerId, ownerId)];
+  if (filtros?.ledgerEntryId) conds.push(eq(ledgerCharges.ledgerEntryId, filtros.ledgerEntryId));
+  if (filtros?.propertyId) conds.push(eq(ledgerCharges.propertyId, filtros.propertyId));
+  if (filtros?.grupo) conds.push(eq(ledgerCharges.grupo, filtros.grupo));
+  if (filtros?.status) conds.push(eq(ledgerCharges.status, filtros.status));
+  return db.select().from(ledgerCharges).where(and(...conds)).orderBy(desc(ledgerCharges.dataVencimento));
+}
+
+export async function getLedgerCharge(ownerId: number, id: number) {
+  const db = await requireDb();
+  const [charge] = await db.select().from(ledgerCharges).where(and(eq(ledgerCharges.ownerId, ownerId), eq(ledgerCharges.id, id))).limit(1);
+  return charge;
+}
+
+export async function createLedgerCharge(data: InsertLedgerCharge) {
+  const db = await requireDb();
+  const res = await db.insert(ledgerCharges).values(data);
+  return (res as unknown as { insertId: number }[])[0]?.insertId ?? (res as unknown as { insertId: number }).insertId;
+}
+
+export async function updateLedgerCharge(ownerId: number, id: number, data: Partial<InsertLedgerCharge>) {
+  const db = await requireDb();
+  await db.update(ledgerCharges).set(data).where(and(eq(ledgerCharges.ownerId, ownerId), eq(ledgerCharges.id, id)));
+}
+
+/** Só os meses "em aberto" — os pagos e cancelados nunca são regenerados, pra não perder a baixa nem o comprovante. */
+export async function deleteLedgerChargesAbertas(ownerId: number, ledgerEntryId: number) {
+  const db = await requireDb();
+  await db.delete(ledgerCharges).where(and(eq(ledgerCharges.ownerId, ownerId), eq(ledgerCharges.ledgerEntryId, ledgerEntryId), eq(ledgerCharges.status, "aberto")));
+}
+
+export async function deleteLedgerChargesByEntry(ownerId: number, ledgerEntryId: number) {
+  const db = await requireDb();
+  await db.delete(ledgerCharges).where(and(eq(ledgerCharges.ownerId, ownerId), eq(ledgerCharges.ledgerEntryId, ledgerEntryId)));
+}
+
+/** Bloqueia excluir/editar o cadastro quando algum mês já foi baixado — protege a baixa e o comprovante anexado. */
+export async function existeLedgerChargePago(ownerId: number, ledgerEntryId: number) {
+  const db = await requireDb();
+  const [row] = await db.select({ id: ledgerCharges.id }).from(ledgerCharges).where(and(eq(ledgerCharges.ownerId, ownerId), eq(ledgerCharges.ledgerEntryId, ledgerEntryId), eq(ledgerCharges.status, "pago"))).limit(1);
+  return !!row;
 }
 
 export async function deleteLedgerEntriesByReservation(ownerId: number, reservationId: number) {

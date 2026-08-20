@@ -1,0 +1,21 @@
+CREATE TABLE `ledger_charges` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`ownerId` int NOT NULL,
+	`ledgerEntryId` int NOT NULL,
+	`propertyId` int NOT NULL,
+	`grupo` enum('despesa_fixa','despesa_variavel','receita','aporte_capital') NOT NULL,
+	`categoria` varchar(300),
+	`descricao` varchar(300),
+	`contraparte` varchar(150),
+	`competencia` varchar(7) NOT NULL,
+	`dataVencimento` date NOT NULL,
+	`valor` decimal(12,2) NOT NULL,
+	`status` enum('aberto','pago','cancelado') NOT NULL DEFAULT 'aberto',
+	`dataPagamento` date,
+	`valorPago` decimal(12,2),
+	`comprovanteUrl` varchar(500),
+	`comprovanteKey` varchar(255),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `ledger_charges_id` PRIMARY KEY(`id`)
+);

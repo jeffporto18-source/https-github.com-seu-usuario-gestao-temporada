@@ -352,4 +352,55 @@ export function registerUploadRoutes(app: Express) {
       res.status(500).json({ error: error.message || "Erro ao fazer upload do novo contrato." });
     }
   });
+
+  /**
+   * POST /api/upload/comprovante-lancamento
+   * Body: multipart/form-data with field "file" (PDF ou imagem) e "chargeId" (number)
+   * Comprovante de pagamento/recebimento de uma ocorrência mensal de Contas a Pagar/Receber.
+   * Returns: { comprovanteUrl, comprovanteKey }
+   */
+  app.post("/api/upload/comprovante-lancamento", upload.single("file"), async (req: Request, res: Response) => {
+    try {
+      const ctx = await resolverContexto(req, res);
+      if (!ctx) return;
+      if (!ctx.podeEscrever) {
+        res.status(403).json({ error: "Seu acesso nesta empresa não permite anexar comprovantes." });
+        return;
+      }
+
+      const chargeId = Number(req.body.chargeId);
+      if (!chargeId) {
+        res.status(400).json({ error: "chargeId é obrigatório." });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: "Arquivo não enviado." });
+        return;
+      }
+
+      const ext = EXT_BY_MIME[file.mimetype];
+      if (!ext) {
+        res.status(400).json({ error: "Apenas PDF ou imagens (JPG, PNG, WEBP) são aceitos." });
+        return;
+      }
+
+      const charge = await db.getLedgerCharge(ctx.ownerId, chargeId);
+      if (!charge) {
+        res.status(404).json({ error: "Lançamento não encontrado." });
+        return;
+      }
+
+      const relKey = `comprovantes/lancamento_${chargeId}.${ext}`;
+      const { key, url } = await storagePut(relKey, file.buffer, file.mimetype);
+
+      await db.updateLedgerCharge(ctx.ownerId, chargeId, { comprovanteUrl: url, comprovanteKey: key });
+
+      res.json({ comprovanteUrl: url, comprovanteKey: key });
+    } catch (error: any) {
+      console.error("[Upload] Ledger charge receipt upload failed:", error);
+      res.status(500).json({ error: error.message || "Erro ao fazer upload do comprovante." });
+    }
+  });
 }

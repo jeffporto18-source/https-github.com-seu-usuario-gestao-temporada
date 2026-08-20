@@ -267,6 +267,13 @@
       "when": 1786830361121,
       "tag": "0037_add_recebimento_reserva",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1786830421121,
+      "tag": "0038_add_ledger_charges",
+      "breakpoints": true
     }
   ]
 }

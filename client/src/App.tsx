@@ -17,6 +17,7 @@ import AlugueisReceber from "./pages/AlugueisReceber";
 import Inventario from "./pages/Inventario";
 import Receitas from "./pages/Receitas";
 import Despesas from "./pages/Despesas";
+import Relatorio from "./pages/Relatorio";
 import Aportes from "./pages/Aportes";
 import Fornecedores from "./pages/Fornecedores";
 import Socios from "./pages/Socios";
@@ -147,6 +148,11 @@ function App() {
             <Route path="/despesas">
               <RequireAuth>
                 <DashboardLayout><Despesas /></DashboardLayout>
+              </RequireAuth>
+            </Route>
+            <Route path="/relatorio">
+              <RequireAuth>
+                <DashboardLayout><Relatorio /></DashboardLayout>
               </RequireAuth>
             </Route>
             <Route path="/aportes">

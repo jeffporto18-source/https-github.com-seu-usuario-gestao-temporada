@@ -378,15 +378,27 @@ export default function ImportarCsv() {
         }
       }
 
-      // 2ª passada: só aplica o "Pago" do repasse quando ele cobre exatamente
-      // uma reserva (correspondência exata). Quando cobre várias, não dá para
-      // saber a fatia de cada uma com segurança, então usa uma estimativa sem
-      // "outras taxas" (ganhos brutos − taxa de serviço).
+      // 2ª passada: em alguns modelos de relatório do Airbnb a coluna "Valor" já vem
+      // LÍQUIDA — soma exatamente ao "Pago" do repasse que cobre o grupo inteiro — em
+      // vez de ser a diária bruta. Usá-la direto como valor bruto fazia ele importar
+      // igual ao líquido. Detecta esse modelo comparando a soma do "Valor" das reservas
+      // do grupo com o "Pago" do repasse: quando bate, a diária bruta de verdade é
+      // "Valor" + "Taxa de serviço" (a taxa que a Airbnb já tinha descontado).
+      // Quando não bate (outro modelo de relatório, onde "Valor" já é bruto de fato),
+      // usa "Ganhos brutos" para refinar o líquido recebido e as outras taxas — mas só
+      // quando o repasse cobre exatamente uma reserva; cobrindo várias, não dá pra saber
+      // a fatia de cada uma com segurança, então usa uma estimativa sem "outras taxas".
       const mapped: CsvRow[] = [];
       for (const g of grupos) {
+        const somaValorDoGrupo = g.itens.reduce((s, it) => s + it.row.valorBruto, 0);
+        const valorDoGrupoJaELiquido = g.pago !== null && g.itens.length > 0 && Math.abs(somaValorDoGrupo - g.pago) < 0.01;
+
         for (const item of g.itens) {
           const row = { ...item.row };
-          if (item.ganhosBrutos !== null) {
+          if (valorDoGrupoJaELiquido) {
+            row.valorLiquidoRecebido = row.valorBruto;
+            row.valorBruto = round2(row.valorBruto + row.taxaAirbnb);
+          } else if (item.ganhosBrutos !== null) {
             if (g.pago !== null && g.itens.length === 1) {
               row.valorLiquidoRecebido = g.pago;
               row.outrasTaxas = round2(item.ganhosBrutos - g.pago - row.taxaAirbnb);

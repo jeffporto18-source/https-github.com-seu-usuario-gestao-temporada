@@ -9,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -182,6 +181,14 @@ export default function Contratos() {
   const imoveisComContrato = useMemo(() => new Set((todosContratos ?? []).map((c) => c.propertyId)), [todosContratos]);
   const imoveisSemContrato = useMemo(() => longTermProps.filter((p) => !imoveisComContrato.has(p.id)), [longTermProps, imoveisComContrato]);
 
+  // Quando a tela já está filtrada por um imóvel específico (sem contrato ainda), "Novo contrato"
+  // não precisa perguntar de novo qual imóvel é — a pessoa já escolheu isso uma vez, no filtro do
+  // topo da página. Escolher duas vezes a mesma coisa foi o que um usuário real relatou.
+  const imovelTravado = useMemo(
+    () => (propertyId ? imoveisSemContrato.find((p) => String(p.id) === propertyId) : undefined),
+    [propertyId, imoveisSemContrato],
+  );
+
   const { data: charges } = trpc.longTermContracts.charges.useQuery(
     { contractId: selectedContractId ?? undefined },
     { enabled: !!selectedContractId },
@@ -195,9 +202,17 @@ export default function Contratos() {
   const create = trpc.longTermContracts.create.useMutation({
     onSuccess: (res) => {
       utils.longTermContracts.list.invalidate();
+      utils.properties.list.invalidate(); // o anexo antigo do imóvel pode ter sido migrado para cá
       setSavedContractId(res.id);
       setSelectedContractId(res.id);
-      toast.success("Contrato cadastrado. Anexe os documentos abaixo.");
+      // Se o imóvel já tinha um contrato de locação anexado antes de existir esta aba, ele acabou
+      // de ser herdado pelo contrato — mostra como já anexado em vez de pedir para anexar de novo.
+      if (res.contratoLocacaoUrl) {
+        setSavedDocs((prev) => ({ ...prev, contratoLocacaoUrl: res.contratoLocacaoUrl ?? undefined }));
+        toast.success("Contrato cadastrado. O documento já anexado no imóvel foi vinculado a ele.");
+      } else {
+        toast.success("Contrato cadastrado. Anexe os documentos abaixo.");
+      }
     },
     onError: (e) => toast.error(e.message),
   });
@@ -390,11 +405,27 @@ export default function Contratos() {
         action={
           <div className="flex gap-2">
             <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="active:scale-[0.97] transition-transform" disabled={!imoveisSemContrato.length}>
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Novo contrato
-                </Button>
-              </DialogTrigger>
+              <Button
+                size="sm"
+                className="active:scale-[0.97] transition-transform"
+                disabled={!imoveisSemContrato.length}
+                onClick={() => {
+                  // Herda o imóvel do filtro do topo, já com administração/imobiliária/comissão
+                  // dele — a mesma lógica que o Select do imóvel já aplica ao trocar de opção.
+                  if (imovelTravado) {
+                    setForm({
+                      ...emptyForm,
+                      propertyId: String(imovelTravado.id),
+                      tipoAdministracao: imovelTravado.tipoAdministracao as ContractForm["tipoAdministracao"],
+                      comissaoPct: String(Number(imovelTravado.comissaoPct)),
+                      imobiliariaId: imovelTravado.imobiliariaId ? String(imovelTravado.imobiliariaId) : "",
+                    });
+                  }
+                  setOpen(true);
+                }}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" /> Novo contrato
+              </Button>
               <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="font-serif">
@@ -444,9 +475,12 @@ export default function Contratos() {
                 <div className="grid gap-4 py-2">
                   <div className="grid gap-1.5">
                     <Label>Imóvel</Label>
-                    {editingId !== null ? (
+                    {editingId !== null || imovelTravado ? (
                       <p className="text-sm px-3 py-2 rounded-md border border-input bg-secondary/30 text-muted-foreground">
-                        {nomeImovel(Number(form.propertyId))} <span className="text-xs">(não pode ser alterado)</span>
+                        {nomeImovel(Number(form.propertyId))}{" "}
+                        <span className="text-xs">
+                          {editingId !== null ? "(não pode ser alterado)" : "(já escolhido no filtro acima)"}
+                        </span>
                       </p>
                     ) : (
                       <>

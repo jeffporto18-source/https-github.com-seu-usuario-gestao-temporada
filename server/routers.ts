@@ -1102,6 +1102,19 @@ export const appRouter = router({
           iptuPor: rest.iptuPor,
         });
 
+        // Antes de existir a aba Contratos, o contrato de locação era anexado direto no imóvel.
+        // Ao cadastrar o PRIMEIRO contrato de um imóvel que já tem esse anexo antigo, ele passa a
+        // ser o anexo do contrato — é o mesmo documento, só migrando de lugar automaticamente, sem
+        // exigir reenvio de quem está cadastrando o contrato agora.
+        const imovel = await db.getProperty(ctx.ownerId, rest.propertyId);
+        if (imovel?.contratoUrl) {
+          await db.updateLongTermContract(ctx.ownerId, contractId, {
+            contratoLocacaoUrl: imovel.contratoUrl,
+            contratoLocacaoKey: imovel.contratoKey,
+          });
+          await db.updateProperty(ctx.ownerId, rest.propertyId, { contratoUrl: null, contratoKey: null });
+        }
+
         // Primeiro aluguel devido: mês seguinte ao fim da carência (aluguel é pago postecipado).
         // Sem carência, cobra a partir do próprio mês de início.
         const inicioCobranca = rest.carenciaFim
@@ -1142,7 +1155,12 @@ export const appRouter = router({
         // custos já cadastrados no imóvel podem ter trocado de dono.
         await sincronizarCustosDoImovel(ctx.ownerId, rest.propertyId);
 
-        return { id: contractId };
+        return {
+          id: contractId,
+          // Presente só quando o anexo antigo do imóvel foi herdado — o cliente usa isso para
+          // mostrar o documento como já anexado, em vez de oferecer "Anexar" de novo.
+          contratoLocacaoUrl: imovel?.contratoUrl ?? null,
+        };
       }),
     update: escritaProcedure
       .input(

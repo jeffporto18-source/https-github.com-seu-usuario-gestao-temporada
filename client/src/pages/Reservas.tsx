@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -196,11 +197,11 @@ export default function Reservas() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-1.5">
                     <Label>Check-in</Label>
-                    <Input value={form.checkin} onChange={(e) => setForm({ ...form, checkin: e.target.value })} type="date" />
+                    <DateInput value={form.checkin} onChange={(v) => setForm({ ...form, checkin: v })} />
                   </div>
                   <div className="grid gap-1.5">
                     <Label>Check-out</Label>
-                    <Input value={form.checkout} onChange={(e) => setForm({ ...form, checkout: e.target.value })} type="date" />
+                    <DateInput value={form.checkout} onChange={(v) => setForm({ ...form, checkout: v })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-[88px_1fr_1fr] gap-3">

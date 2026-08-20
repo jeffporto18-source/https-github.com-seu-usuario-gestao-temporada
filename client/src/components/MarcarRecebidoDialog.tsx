@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -102,7 +103,7 @@ export default function MarcarRecebidoDialog({ chargeId, valorOriginal, onOpenCh
         <div className="grid gap-3 py-2">
           <div className="grid gap-1.5">
             <Label>Data de recebimento</Label>
-            <Input value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} type="date" />
+            <DateInput value={dataRecebimento} onChange={setDataRecebimento} />
           </div>
           <div className="grid gap-1.5">
             <Label>Teve multa ou juros por atraso?</Label>

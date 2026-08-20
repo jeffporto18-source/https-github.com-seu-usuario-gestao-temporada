@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -444,7 +445,26 @@ export default function Contratos() {
                       </p>
                     ) : (
                       <>
-                        <Select value={form.propertyId} onValueChange={(v) => setForm({ ...form, propertyId: v })}>
+                        <Select
+                          value={form.propertyId}
+                          onValueChange={(v) => {
+                            // A administração e a comissão já foram definidas no cadastro do
+                            // imóvel — herda esses valores para não pedir a mesma informação de
+                            // novo aqui. Continuam editáveis, porque um contrato específico pode
+                            // negociar diferente do padrão do imóvel.
+                            const imovel = imoveis?.find((p) => String(p.id) === v);
+                            setForm({
+                              ...form,
+                              propertyId: v,
+                              ...(imovel
+                                ? {
+                                    tipoAdministracao: imovel.tipoAdministracao as ContractForm["tipoAdministracao"],
+                                    comissaoPct: String(Number(imovel.comissaoPct)),
+                                  }
+                                : {}),
+                            });
+                          }}
+                        >
                           <SelectTrigger><SelectValue placeholder="Selecione o imóvel de longa duração" /></SelectTrigger>
                           <SelectContent>
                             {imoveisSemContrato.map((p) => (
@@ -517,7 +537,7 @@ export default function Contratos() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
                       <Label>Início do contrato</Label>
-                      <Input value={form.dataInicio} onChange={(e) => setForm({ ...form, dataInicio: e.target.value })} type="date" />
+                      <DateInput value={form.dataInicio} onChange={(v) => setForm({ ...form, dataInicio: v })} />
                     </div>
                     <div className="grid gap-1.5">
                       <Label>Prazo (meses)</Label>
@@ -547,11 +567,11 @@ export default function Contratos() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
                       <Label>Carência (início)</Label>
-                      <Input value={form.carenciaInicio} onChange={(e) => setForm({ ...form, carenciaInicio: e.target.value })} type="date" />
+                      <DateInput value={form.carenciaInicio} onChange={(v) => setForm({ ...form, carenciaInicio: v })} />
                     </div>
                     <div className="grid gap-1.5">
                       <Label>Carência (fim)</Label>
-                      <Input value={form.carenciaFim} onChange={(e) => setForm({ ...form, carenciaFim: e.target.value })} type="date" />
+                      <DateInput value={form.carenciaFim} onChange={(v) => setForm({ ...form, carenciaFim: v })} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -665,10 +685,9 @@ export default function Contratos() {
                       <div className="grid grid-cols-2 gap-3">
                         <div className="grid gap-1.5">
                           <Label className="text-xs">Data de início</Label>
-                          <Input
+                          <DateInput
                             value={form.prazoIndeterminadoDataInicio}
-                            onChange={(e) => setForm({ ...form, prazoIndeterminadoDataInicio: e.target.value })}
-                            type="date"
+                            onChange={(v) => setForm({ ...form, prazoIndeterminadoDataInicio: v })}
                           />
                         </div>
                         <div className="grid gap-1.5">

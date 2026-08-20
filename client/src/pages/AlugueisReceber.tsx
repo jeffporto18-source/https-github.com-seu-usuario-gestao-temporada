@@ -16,6 +16,7 @@ import { brl, formatDate, formatCompetencia } from "@/lib/format";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 import MarcarRecebidoDialog from "@/components/MarcarRecebidoDialog";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 
 export default function AlugueisReceber() {
   const utils = trpc.useUtils();
@@ -93,11 +94,11 @@ export default function AlugueisReceber() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="grid gap-1">
             <label className="text-[11px] text-muted-foreground">De</label>
-            <Input type="date" value={vencimentoDe} onChange={(e) => setVencimentoDe(e.target.value)} className="h-8 w-[150px]" />
+            <DateInput value={vencimentoDe} onChange={setVencimentoDe} className="h-8 w-[150px]" />
           </div>
           <div className="grid gap-1">
             <label className="text-[11px] text-muted-foreground">Até</label>
-            <Input type="date" value={vencimentoAte} onChange={(e) => setVencimentoAte(e.target.value)} className="h-8 w-[150px]" />
+            <DateInput value={vencimentoAte} onChange={setVencimentoAte} className="h-8 w-[150px]" />
           </div>
           {filtroAtivo && (
             <Button variant="ghost" size="sm" className="h-8" onClick={() => { setVencimentoDe(""); setVencimentoAte(""); }}>

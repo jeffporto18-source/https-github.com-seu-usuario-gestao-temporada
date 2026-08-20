@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -190,7 +191,7 @@ export default function Clientes() {
                     </div>
                     <div className="grid gap-1.5">
                       <Label className="text-xs">Validade</Label>
-                      <Input value={form.certificadoA1Validade} onChange={(e) => setForm({ ...form, certificadoA1Validade: e.target.value })} type="date" />
+                      <DateInput value={form.certificadoA1Validade} onChange={(v) => setForm({ ...form, certificadoA1Validade: v })} />
                     </div>
                   </div>
                 </div>

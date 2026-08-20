@@ -123,7 +123,10 @@ export default function Imoveis() {
     const payload = {
       apelido: form.apelido,
       endereco: form.endereco || undefined,
-      comissaoPct: Number(form.comissao) || 0,
+      // Comissão e custo de faxina não fazem sentido para longa duração: quem administra e a
+      // comissão são definidas por contrato (podem mudar a cada inquilino), e faxina é conceito de
+      // temporada. Ficam zerados e nem aparecem no formulário nesse caso.
+      comissaoPct: form.tipoLocacao === "longa" ? 0 : Number(form.comissao) || 0,
       custoFaxina: form.tipoLocacao === "longa" ? 0 : Number(form.custoFaxina) || 0,
       tipoLocacao: form.tipoLocacao,
       tipoAdministracao: form.tipoAdministracao,
@@ -273,18 +276,22 @@ export default function Imoveis() {
                   <Label>Endereço</Label>
                   <Input value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
                 </div>
-                <div className={form.tipoLocacao === "longa" ? "grid gap-1.5" : "grid grid-cols-2 gap-3"}>
-                  <div className="grid gap-1.5">
-                    <Label>Comissão (%)</Label>
-                    <Input value={form.comissao} onChange={(e) => setForm({ ...form, comissao: e.target.value })} type="number" step="0.01" />
-                  </div>
-                  {form.tipoLocacao === "curta" && (
+                {/* Comissão e custo de faxina só fazem sentido para curta temporada: não há
+                    contrato para reservas, então esses valores são usados direto daqui. Para
+                    longa duração, quem administra e a comissão são definidos no cadastro do
+                    contrato — pedir de novo aqui seria a mesma informação duas vezes. */}
+                {form.tipoLocacao === "curta" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label>Comissão (%)</Label>
+                      <Input value={form.comissao} onChange={(e) => setForm({ ...form, comissao: e.target.value })} type="number" step="0.01" />
+                    </div>
                     <div className="grid gap-1.5">
                       <Label>Custo por faxina (R$)</Label>
                       <Input value={form.custoFaxina} onChange={(e) => setForm({ ...form, custoFaxina: e.target.value })} type="number" step="0.01" placeholder="ex.: 150.00" />
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 <div className="grid gap-1.5">
                   <Label>Imóvel financiado ou consorciado?</Label>
@@ -454,10 +461,15 @@ function ImovelRow({ p, nomeCliente, uploading, onEdit, onDelete, onUpload }: Im
             <DropdownMenuItem onClick={onEdit}>
               <Pencil className="mr-2 h-3.5 w-3.5" /> Editar
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={uploading} onClick={onUpload}>
-              <Upload className="mr-2 h-3.5 w-3.5" /> {uploading ? "Enviando..." : p.contratoUrl ? "Substituir contrato" : "Anexar contrato"}
-            </DropdownMenuItem>
-            {p.contratoUrl && (
+            {/* Para longa duração o contrato tem tela própria (aba Contratos, com "Contrato de
+                locação" e os demais anexos) — anexar aqui também seria o mesmo documento em dois
+                lugares. Para curta temporada não existe essa tela, então o anexo continua aqui. */}
+            {!isLonga && (
+              <DropdownMenuItem disabled={uploading} onClick={onUpload}>
+                <Upload className="mr-2 h-3.5 w-3.5" /> {uploading ? "Enviando..." : p.contratoUrl ? "Substituir contrato" : "Anexar contrato"}
+              </DropdownMenuItem>
+            )}
+            {!isLonga && p.contratoUrl && (
               <DropdownMenuItem onClick={() => window.open(p.contratoUrl!, "_blank", "noopener,noreferrer")}>
                 <ExternalLink className="mr-2 h-3.5 w-3.5" /> Ver contrato
               </DropdownMenuItem>

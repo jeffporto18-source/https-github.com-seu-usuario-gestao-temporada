@@ -129,9 +129,12 @@ export default function Imoveis() {
       comissaoPct: form.tipoLocacao === "longa" ? 0 : Number(form.comissao) || 0,
       custoFaxina: form.tipoLocacao === "longa" ? 0 : Number(form.custoFaxina) || 0,
       tipoLocacao: form.tipoLocacao,
-      tipoAdministracao: form.tipoAdministracao,
-      imobiliariaId: form.imobiliariaId ? Number(form.imobiliariaId) : undefined,
-      gestorId: form.gestorId ? Number(form.gestorId) : undefined,
+      // Para longa, administração/imobiliária/gestor não aparecem mais no formulário — força
+      // valores neutros (em vez de "undefined", que o update deixaria como estava) para não deixar
+      // um valor antigo de quando o imóvel foi curta ou administradora esquecido no banco.
+      tipoAdministracao: form.tipoLocacao === "longa" ? "propria" : form.tipoAdministracao,
+      imobiliariaId: form.tipoLocacao === "curta" && form.tipoAdministracao === "administradora" && form.imobiliariaId ? Number(form.imobiliariaId) : null,
+      gestorId: form.tipoLocacao === "curta" && form.tipoAdministracao === "gestor_curta_temporada" && form.gestorId ? Number(form.gestorId) : null,
       financiado: form.financiado,
       tipoFinanciamento: form.financiado === "sim" ? form.tipoFinanciamento : undefined,
       valorParcela: form.financiado === "sim" && form.valorParcela ? Number(form.valorParcela) : undefined,
@@ -194,44 +197,6 @@ export default function Imoveis() {
                 <DialogTitle className="font-serif">{editId ? "Editar imóvel" : "Novo imóvel"}</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4 py-2">
-                <div className="grid gap-1.5">
-                  <Label>Administração do imóvel</Label>
-                  <Select value={form.tipoAdministracao} onValueChange={(v) => setForm({ ...form, tipoAdministracao: v as PropertyForm["tipoAdministracao"] })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(TIPO_ADMIN_LABELS) as PropertyForm["tipoAdministracao"][]).map((k) => (
-                        <SelectItem key={k} value={k}>{TIPO_ADMIN_LABELS[k]}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {form.tipoAdministracao === "administradora" && (
-                  <div className="grid gap-1.5">
-                    <Label>Imobiliária responsável</Label>
-                    <Select value={form.imobiliariaId} onValueChange={(v) => setForm({ ...form, imobiliariaId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Selecione a imobiliária" /></SelectTrigger>
-                      <SelectContent>
-                        {imobiliarias?.map((i) => (
-                          <SelectItem key={i.id} value={String(i.id)}>{i.nome}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {form.tipoAdministracao === "gestor_curta_temporada" && (
-                  <div className="grid gap-1.5">
-                    <Label>Gestor de temporada</Label>
-                    <Select value={form.gestorId} onValueChange={(v) => setForm({ ...form, gestorId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Selecione o gestor" /></SelectTrigger>
-                      <SelectContent>
-                        {gestores?.map((g) => (
-                          <SelectItem key={g.id} value={String(g.id)}>{g.nome}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
                 {!isHolding && (
                   <div className="grid gap-1.5">
                     <Label>Proprietário</Label>
@@ -259,6 +224,65 @@ export default function Imoveis() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Administração, imobiliária, comissão e custo de faxina só aparecem para curta
+                    temporada: não há contrato para reservas, então esses valores são usados
+                    direto daqui. Para longa duração, quem administra, a imobiliária e a comissão
+                    são definidos no cadastro do CONTRATO — podem mudar a cada inquilino, então não
+                    fazem sentido como um dado fixo do imóvel, e pedir aqui também seria a mesma
+                    informação duas vezes. */}
+                {form.tipoLocacao === "curta" && (
+                  <>
+                    <div className="grid gap-1.5">
+                      <Label>Administração do imóvel</Label>
+                      <Select value={form.tipoAdministracao} onValueChange={(v) => setForm({ ...form, tipoAdministracao: v as PropertyForm["tipoAdministracao"] })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(Object.keys(TIPO_ADMIN_LABELS) as PropertyForm["tipoAdministracao"][]).map((k) => (
+                            <SelectItem key={k} value={k}>{TIPO_ADMIN_LABELS[k]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {form.tipoAdministracao === "administradora" && (
+                      <div className="grid gap-1.5">
+                        <Label>Imobiliária responsável</Label>
+                        <Select value={form.imobiliariaId} onValueChange={(v) => setForm({ ...form, imobiliariaId: v })}>
+                          <SelectTrigger><SelectValue placeholder="Selecione a imobiliária" /></SelectTrigger>
+                          <SelectContent>
+                            {imobiliarias?.map((i) => (
+                              <SelectItem key={i.id} value={String(i.id)}>{i.nome}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    {form.tipoAdministracao === "gestor_curta_temporada" && (
+                      <div className="grid gap-1.5">
+                        <Label>Gestor de temporada</Label>
+                        <Select value={form.gestorId} onValueChange={(v) => setForm({ ...form, gestorId: v })}>
+                          <SelectTrigger><SelectValue placeholder="Selecione o gestor" /></SelectTrigger>
+                          <SelectContent>
+                            {gestores?.map((g) => (
+                              <SelectItem key={g.id} value={String(g.id)}>{g.nome}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-1.5">
+                        <Label>Comissão (%)</Label>
+                        <Input value={form.comissao} onChange={(e) => setForm({ ...form, comissao: e.target.value })} type="number" step="0.01" />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label>Custo por faxina (R$)</Label>
+                        <Input value={form.custoFaxina} onChange={(e) => setForm({ ...form, custoFaxina: e.target.value })} type="number" step="0.01" placeholder="ex.: 150.00" />
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 {form.tipoLocacao === "longa" && (
                   <div className="grid gap-1.5">
                     <Label>Sócio</Label>
@@ -272,26 +296,11 @@ export default function Imoveis() {
                     </Select>
                   </div>
                 )}
+
                 <div className="grid gap-1.5">
                   <Label>Endereço</Label>
                   <Input value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} />
                 </div>
-                {/* Comissão e custo de faxina só fazem sentido para curta temporada: não há
-                    contrato para reservas, então esses valores são usados direto daqui. Para
-                    longa duração, quem administra e a comissão são definidos no cadastro do
-                    contrato — pedir de novo aqui seria a mesma informação duas vezes. */}
-                {form.tipoLocacao === "curta" && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-1.5">
-                      <Label>Comissão (%)</Label>
-                      <Input value={form.comissao} onChange={(e) => setForm({ ...form, comissao: e.target.value })} type="number" step="0.01" />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label>Custo por faxina (R$)</Label>
-                      <Input value={form.custoFaxina} onChange={(e) => setForm({ ...form, custoFaxina: e.target.value })} type="number" step="0.01" placeholder="ex.: 150.00" />
-                    </div>
-                  </div>
-                )}
 
                 <div className="grid gap-1.5">
                   <Label>Imóvel financiado ou consorciado?</Label>

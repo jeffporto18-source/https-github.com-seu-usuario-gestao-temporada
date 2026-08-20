@@ -45,6 +45,7 @@ interface ContractForm {
   tipoGarantia: string;
   comissaoPct: string;
   tipoAdministracao: "propria" | "administradora" | "gestor_curta_temporada";
+  imobiliariaId: string;
   renovacaoAutomatica: "" | "novo_contrato" | "prazo_indeterminado";
   prazoIndeterminadoDataInicio: string;
   prazoIndeterminadoValor: string;
@@ -65,7 +66,7 @@ const emptyForm: ContractForm = {
   propertyId: "", dataInicio: "", prazoMeses: "12", diaVencimentoAluguel: "10",
   indiceCorrecao: "IGPM", carenciaInicio: "", carenciaFim: "", valorAluguel: "",
   nomeInquilino: "", cpfCnpjInquilino: "", contatoInquilino: "", telefoneInquilino: "", celularInquilino: "",
-  whatsappInquilino: "", emailInquilino: "", tipoGarantia: "", comissaoPct: "0", tipoAdministracao: "propria",
+  whatsappInquilino: "", emailInquilino: "", tipoGarantia: "", comissaoPct: "0", tipoAdministracao: "propria", imobiliariaId: "",
   renovacaoAutomatica: "", prazoIndeterminadoDataInicio: "", prazoIndeterminadoValor: "", prazoIndeterminadoPrazoReajusteMeses: "",
   condominioPor: "proprietario", iptuPor: "proprietario",
 };
@@ -187,6 +188,7 @@ export default function Contratos() {
   );
 
   const { data: garantias } = trpc.guaranteeTypes.list.useQuery();
+  const { data: imobiliarias } = trpc.imobiliarias.list.useQuery();
 
   const reset = () => { setForm(emptyForm); setSavedContractId(null); setSavedDocs({}); setEditingId(null); };
 
@@ -248,6 +250,7 @@ export default function Contratos() {
         tipoGarantia: form.tipoGarantia || undefined,
         comissaoPct: form.tipoAdministracao === "propria" ? 0 : Number(form.comissaoPct) || 0,
         tipoAdministracao: form.tipoAdministracao,
+        imobiliariaId: form.tipoAdministracao === "administradora" && form.imobiliariaId ? Number(form.imobiliariaId) : null,
         renovacaoAutomatica: form.renovacaoAutomatica || null,
         prazoIndeterminadoDataInicio: form.renovacaoAutomatica === "prazo_indeterminado" ? (form.prazoIndeterminadoDataInicio || null) : null,
         prazoIndeterminadoValor: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoValor ? Number(form.prazoIndeterminadoValor) : null,
@@ -280,6 +283,7 @@ export default function Contratos() {
       tipoGarantia: form.tipoGarantia || undefined,
       comissaoPct: form.tipoAdministracao === "propria" ? 0 : Number(form.comissaoPct) || 0,
       tipoAdministracao: form.tipoAdministracao,
+      imobiliariaId: form.tipoAdministracao === "administradora" && form.imobiliariaId ? Number(form.imobiliariaId) : undefined,
       renovacaoAutomatica: form.renovacaoAutomatica || undefined,
       prazoIndeterminadoDataInicio: form.renovacaoAutomatica === "prazo_indeterminado" ? (form.prazoIndeterminadoDataInicio || undefined) : undefined,
       prazoIndeterminadoValor: form.renovacaoAutomatica === "prazo_indeterminado" && form.prazoIndeterminadoValor ? Number(form.prazoIndeterminadoValor) : undefined,
@@ -314,6 +318,7 @@ export default function Contratos() {
       tipoGarantia: c.tipoGarantia || "",
       comissaoPct: String(c.comissaoPct ?? "0"),
       tipoAdministracao: c.tipoAdministracao as ContractForm["tipoAdministracao"],
+      imobiliariaId: c.imobiliariaId ? String(c.imobiliariaId) : "",
       renovacaoAutomatica: (c.renovacaoAutomatica as ContractForm["renovacaoAutomatica"]) || "",
       prazoIndeterminadoDataInicio: c.prazoIndeterminadoDataInicio || "",
       prazoIndeterminadoValor: c.prazoIndeterminadoValor ? String(c.prazoIndeterminadoValor) : "",
@@ -460,6 +465,7 @@ export default function Contratos() {
                                 ? {
                                     tipoAdministracao: imovel.tipoAdministracao as ContractForm["tipoAdministracao"],
                                     comissaoPct: String(Number(imovel.comissaoPct)),
+                                    imobiliariaId: imovel.imobiliariaId ? String(imovel.imobiliariaId) : "",
                                   }
                                 : {}),
                             });
@@ -503,6 +509,19 @@ export default function Contratos() {
                       </div>
                     )}
                   </div>
+                  {form.tipoAdministracao === "administradora" && (
+                    <div className="grid gap-1.5">
+                      <Label>Imobiliária responsável</Label>
+                      <Select value={form.imobiliariaId} onValueChange={(v) => setForm({ ...form, imobiliariaId: v })}>
+                        <SelectTrigger><SelectValue placeholder="Selecione a imobiliária" /></SelectTrigger>
+                        <SelectContent>
+                          {imobiliarias?.map((i) => (
+                            <SelectItem key={i.id} value={String(i.id)}>{i.nome}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <div className="rounded-lg border border-border bg-secondary/50 p-3 space-y-3">
                     <div className="flex items-center gap-2 text-sm font-medium">

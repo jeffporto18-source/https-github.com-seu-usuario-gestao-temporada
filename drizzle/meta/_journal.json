@@ -253,6 +253,13 @@
       "when": 1786830241121,
       "tag": "0035_add_perfil_escritorio_contabil",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1786830301121,
+      "tag": "0036_add_contrato_imobiliaria",
+      "breakpoints": true
     }
   ]
 }

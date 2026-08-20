@@ -438,6 +438,10 @@ export const longTermContracts = mysqlTable("long_term_contracts", {
   // Comissão da administradora sobre este contrato (%) e como o imóvel é administrado
   comissaoPct: decimal("comissaoPct", { precision: 5, scale: 2 }).notNull().default("0.00"),
   tipoAdministracao: mysqlEnum("contractTipoAdministracao", ["propria", "administradora", "gestor_curta_temporada"]).notNull().default("propria"),
+  // Imobiliária responsável (quando tipoAdministracao = administradora). Para longa duração, quem
+  // administra e a comissão vivem só aqui — o imóvel não pergunta mais isso, porque podem mudar a
+  // cada inquilino/contrato.
+  imobiliariaId: int("contractImobiliariaId"),
   // Renovação automática ao final do prazo: novo contrato assinado (anexa PDF) ou continuidade por prazo indeterminado
   renovacaoAutomatica: mysqlEnum("renovacaoAutomatica", ["novo_contrato", "prazo_indeterminado"]),
   renovacaoContratoUrl: varchar("renovacaoContratoUrl", { length: 500 }),

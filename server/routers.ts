@@ -568,9 +568,9 @@ export const appRouter = router({
           comissaoPct: z.number().min(0).max(100),
           custoFaxina: z.number().min(0).default(0),
           tipoLocacao: z.enum(["curta", "longa"]).default("curta"),
-          imobiliariaId: z.number().optional(),
+          imobiliariaId: z.number().nullable().optional(),
           tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).default("propria"),
-          gestorId: z.number().optional(),
+          gestorId: z.number().nullable().optional(),
           financiado: z.enum(["sim", "nao"]).default("nao"),
           tipoFinanciamento: z.enum(["financiamento", "consorcio"]).optional(),
           valorParcela: z.number().min(0).optional(),
@@ -1055,6 +1055,7 @@ export const appRouter = router({
           tipoGarantia: z.string().optional(),
           comissaoPct: z.number().min(0).max(100).default(0),
           tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).default("propria"),
+          imobiliariaId: z.number().optional(),
           valorAluguel: z.number().positive(),
           renovacaoAutomatica: z.enum(["novo_contrato", "prazo_indeterminado"]).optional(),
           prazoIndeterminadoDataInicio: z.string().optional(),
@@ -1092,6 +1093,7 @@ export const appRouter = router({
           tipoGarantia: rest.tipoGarantia || null,
           comissaoPct: String(rest.comissaoPct),
           tipoAdministracao: rest.tipoAdministracao,
+          imobiliariaId: rest.tipoAdministracao === "administradora" ? (rest.imobiliariaId ?? null) : null,
           renovacaoAutomatica: rest.renovacaoAutomatica || null,
           prazoIndeterminadoDataInicio: rest.prazoIndeterminadoDataInicio || null,
           prazoIndeterminadoValor: rest.prazoIndeterminadoValor !== undefined ? String(rest.prazoIndeterminadoValor) : null,
@@ -1164,6 +1166,7 @@ export const appRouter = router({
           tipoGarantia: z.string().optional(),
           comissaoPct: z.number().min(0).max(100).optional(),
           tipoAdministracao: z.enum(["propria", "administradora", "gestor_curta_temporada"]).optional(),
+          imobiliariaId: z.number().nullable().optional(),
           renovacaoAutomatica: z.enum(["novo_contrato", "prazo_indeterminado"]).nullable().optional(),
           prazoIndeterminadoDataInicio: z.string().nullable().optional(),
           prazoIndeterminadoValor: z.number().positive().nullable().optional(),
@@ -1173,12 +1176,15 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const { id, dataInicio, dataFim, dataReajuste, carenciaInicio, carenciaFim, comissaoPct, prazoIndeterminadoValor, ...rest } = input;
+        const { id, dataInicio, dataFim, dataReajuste, carenciaInicio, carenciaFim, comissaoPct, prazoIndeterminadoValor, imobiliariaId, ...rest } = input;
         const contrato = await db.getLongTermContract(ctx.ownerId, id);
         await db.updateLongTermContract(ctx.ownerId, id, {
           ...rest,
           ...(comissaoPct !== undefined ? { comissaoPct: String(comissaoPct) } : {}),
           ...(prazoIndeterminadoValor !== undefined ? { prazoIndeterminadoValor: prazoIndeterminadoValor !== null ? String(prazoIndeterminadoValor) : null } : {}),
+          ...(imobiliariaId !== undefined
+            ? { imobiliariaId: (rest.tipoAdministracao ?? contrato?.tipoAdministracao) === "administradora" ? imobiliariaId : null }
+            : {}),
           ...(dataInicio !== undefined ? { dataInicio } : {}),
           ...(dataFim !== undefined ? { dataFim } : {}),
           ...(dataReajuste !== undefined ? { dataReajuste } : {}),

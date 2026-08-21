@@ -347,7 +347,7 @@ export type GuaranteeType = typeof guaranteeTypes.$inferSelect;
 export type InsertGuaranteeType = typeof guaranteeTypes.$inferInsert;
 
 /** Tipos de garantia padrão para seeding automático */
-export const DEFAULT_GUARANTEE_TYPES = ["Caução", "Fiador", "Seguro Fiança", "Capitalização"] as const;
+export const DEFAULT_GUARANTEE_TYPES = ["Sem garantia", "Caução", "Fiador", "Seguro Fiança", "Capitalização"] as const;
 
 /**
  * Fornecedores cadastrados pelo usuário, para vincular às despesas lançadas.

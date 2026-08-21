@@ -648,7 +648,7 @@ export default function Contratos() {
                     <div className="grid gap-1.5">
                       <Label>Índice de correção</Label>
                       <Select value={form.indiceCorrecao} onValueChange={(v) => setForm({ ...form, indiceCorrecao: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="IGPM">IGP-M</SelectItem>
                           <SelectItem value="IPCA">IPCA</SelectItem>
@@ -659,7 +659,7 @@ export default function Contratos() {
                     <div className="grid gap-1.5">
                       <Label>Tipo de garantia</Label>
                       <Select value={form.tipoGarantia} onValueChange={(v) => setForm({ ...form, tipoGarantia: v })}>
-                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectTrigger className="w-full"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                         <SelectContent>
                           {(garantias ?? []).filter((g) => g.ativa === 1).map((g) => (
                             <SelectItem key={g.id} value={g.nome}>{g.nome}</SelectItem>
@@ -679,7 +679,7 @@ export default function Contratos() {
                       <div className="grid gap-1.5">
                         <Label>Condomínio por</Label>
                         <Select value={form.condominioPor} onValueChange={(v) => setForm({ ...form, condominioPor: v as CostResponsibility })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {Object.entries(RESPONSAVEL_CUSTO_LABELS).map(([v, label]) => (
                               <SelectItem key={v} value={v}>{label}</SelectItem>
@@ -690,7 +690,7 @@ export default function Contratos() {
                       <div className="grid gap-1.5">
                         <Label>IPTU por</Label>
                         <Select value={form.iptuPor} onValueChange={(v) => setForm({ ...form, iptuPor: v as CostResponsibility })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {Object.entries(RESPONSAVEL_CUSTO_LABELS).map(([v, label]) => (
                               <SelectItem key={v} value={v}>{label}</SelectItem>

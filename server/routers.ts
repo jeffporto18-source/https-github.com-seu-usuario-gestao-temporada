@@ -85,7 +85,6 @@ function vencimentoNaCompetencia(competencia: string, dia: number): string {
  * apaga só os "aberto" e recria a partir do cadastro atualizado, preservando baixa e comprovante.
  */
 async function sincronizarLedgerCharges(ownerId: number, entry: NonNullable<Awaited<ReturnType<typeof db.getLedgerEntry>>>) {
-  if (entry.grupo === "aporte_capital") return; // Aportes não têm baixa/comprovante — fora do escopo de Contas a Pagar/Receber.
   const existentes = await db.listLedgerCharges(ownerId, { ledgerEntryId: entry.id });
   const competenciasJaResolvidas = new Set(existentes.filter((c) => c.status !== "aberto").map((c) => c.competencia));
   await db.deleteLedgerChargesAbertas(ownerId, entry.id);

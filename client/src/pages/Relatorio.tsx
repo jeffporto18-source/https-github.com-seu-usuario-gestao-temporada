@@ -1,7 +1,6 @@
 import { trpc, type RouterOutputs } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,20 +20,48 @@ import {
 } from "@/components/ui/dialog";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Circle, CheckCircle2, Ban, RotateCcw, Paperclip, ExternalLink, Loader2 } from "lucide-react";
+import { Circle, CheckCircle2, Ban, RotateCcw, Paperclip, ExternalLink, Loader2, Printer } from "lucide-react";
 import { brl, formatDate, formatCompetencia } from "@/lib/format";
 import { PageHeader, EmptyState, SkeletonList } from "./Clientes";
 
 type Charge = RouterOutputs["ledgerCharges"]["list"][number];
-type Tipo = "" | "despesa" | "receita";
+type Tipo = "" | "despesa" | "receita" | "aporte";
+type Situacao = "" | "aberto" | "pago" | "cancelado";
+
+const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+function anosDisponiveis(): number[] {
+  const atual = new Date().getFullYear();
+  const anos: number[] = [];
+  for (let a = atual - 2; a <= atual + 3; a++) anos.push(a);
+  return anos;
+}
+
+const GRUPOS_DO_TIPO: Record<Tipo, Charge["grupo"][]> = {
+  "": ["despesa_fixa", "despesa_variavel", "receita", "aporte_capital"],
+  despesa: ["despesa_fixa", "despesa_variavel"],
+  receita: ["receita"],
+  aporte: ["aporte_capital"],
+};
+
+/** Rótulo da ação de baixa: aluga/vende (receita), aporta capital, ou paga uma despesa. */
+function rotuloBaixa(grupo: Charge["grupo"]) {
+  if (grupo === "receita") return "Marcar como recebido";
+  if (grupo === "aporte_capital") return "Confirmar aporte";
+  return "Dar baixa";
+}
 
 export default function Relatorio() {
   const utils = trpc.useUtils();
   const { data: imoveis } = trpc.properties.list.useQuery();
+  const hoje = new Date();
+  const [mesInicio, setMesInicio] = useState(String(1));
+  const [anoInicio, setAnoInicio] = useState(String(hoje.getFullYear()));
+  const [mesFim, setMesFim] = useState(String(12));
+  const [anoFim, setAnoFim] = useState(String(hoje.getFullYear()));
   const [tipo, setTipo] = useState<Tipo>("");
+  const [situacao, setSituacao] = useState<Situacao>("");
   const [propertyId, setPropertyId] = useState<string>("");
-  const [vencimentoDe, setVencimentoDe] = useState("");
-  const [vencimentoAte, setVencimentoAte] = useState("");
   const [baixando, setBaixando] = useState<Charge | null>(null);
 
   const { data: chargesRaw, isLoading } = trpc.ledgerCharges.list.useQuery({
@@ -52,19 +79,37 @@ export default function Relatorio() {
     onError: (e) => toast.error(e.message),
   });
 
+  const de = `${anoInicio}-${mesInicio.padStart(2, "0")}`;
+  const ate = `${anoFim}-${mesFim.padStart(2, "0")}`;
+  const periodo = de === ate ? formatCompetencia(de) : `${formatCompetencia(de)} a ${formatCompetencia(ate)}`;
+
   const charges = useMemo(
     () =>
       (chargesRaw ?? []).filter((c) => {
-        if (tipo === "despesa" && c.grupo !== "despesa_fixa" && c.grupo !== "despesa_variavel") return false;
-        if (tipo === "receita" && c.grupo !== "receita") return false;
-        if (c.grupo === "aporte_capital") return false;
-        if (vencimentoDe && c.dataVencimento < vencimentoDe) return false;
-        if (vencimentoAte && c.dataVencimento > vencimentoAte) return false;
+        if (!GRUPOS_DO_TIPO[tipo].includes(c.grupo)) return false;
+        if (situacao && c.status !== situacao) return false;
+        if (c.competencia < de || c.competencia > ate) return false;
         return true;
       }),
-    [chargesRaw, tipo, vencimentoDe, vencimentoAte],
+    [chargesRaw, tipo, situacao, de, ate],
   );
-  const filtroAtivo = !!vencimentoDe || !!vencimentoAte;
+
+  const totais = useMemo(
+    () =>
+      charges.reduce(
+        (acc, c) => {
+          if (c.status === "cancelado") return acc;
+          const valor = c.status === "pago" ? Number(c.valorPago ?? c.valor) : Number(c.valor);
+          if (c.grupo === "receita") acc.receita += valor;
+          else if (c.grupo === "aporte_capital") acc.aporte += valor;
+          else acc.despesa += valor;
+          return acc;
+        },
+        { receita: 0, despesa: 0, aporte: 0 },
+      ),
+    [charges],
+  );
+  const resultado = totais.receita - totais.despesa;
 
   const grupos = useMemo(() => {
     const mapa = new Map<string, Charge[]>();
@@ -82,32 +127,107 @@ export default function Relatorio() {
       }));
   }, [charges]);
 
-  const totalAPagar = useMemo(
-    () => charges.filter((c) => c.status === "aberto" && (c.grupo === "despesa_fixa" || c.grupo === "despesa_variavel")).reduce((s, c) => s + Number(c.valor), 0),
-    [charges],
-  );
-  const totalAReceber = useMemo(
-    () => charges.filter((c) => c.status === "aberto" && c.grupo === "receita").reduce((s, c) => s + Number(c.valor), 0),
-    [charges],
-  );
-
   return (
     <div className="max-w-4xl mx-auto">
-      <PageHeader
-        title="Relatório"
-        subtitle="Contas a Pagar e a Receber mês a mês: dê baixa e anexe o comprovante de cada uma."
-      />
+      <div className="mb-4 flex items-start justify-between gap-3 print:hidden">
+        <PageHeader
+          title="Relatório"
+          subtitle="Cada mês do período, com data própria e baixa individual — dê baixa e anexe o comprovante."
+        />
+        <Button variant="outline" className="bg-background shrink-0" onClick={() => window.print()}>
+          <Printer className="mr-1.5 h-4 w-4" /> Imprimir PDF
+        </Button>
+      </div>
 
-      <Card className="mb-4 p-3">
+      {/* Só aparece na impressão — identifica o período no papel/PDF gerado. */}
+      <div className="mb-4 hidden print:block">
+        <h2 className="text-base font-serif font-bold">Relatório · {periodo}</h2>
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="px-4 py-2.5">
+          <p className="text-[11px] text-muted-foreground">Receitas · {periodo}</p>
+          <p className="text-lg font-serif font-semibold text-primary leading-tight">{brl(totais.receita)}</p>
+        </Card>
+        <Card className="px-4 py-2.5">
+          <p className="text-[11px] text-muted-foreground">Despesas</p>
+          <p className="text-lg font-serif font-semibold text-destructive leading-tight">{brl(totais.despesa)}</p>
+        </Card>
+        <Card className="px-4 py-2.5">
+          <p className="text-[11px] text-muted-foreground">Resultado (receitas − despesas)</p>
+          <p className={`text-lg font-serif font-semibold leading-tight ${resultado < 0 ? "text-destructive" : ""}`}>{brl(resultado)}</p>
+        </Card>
+        <Card className="px-4 py-2.5">
+          <p className="text-[11px] text-muted-foreground">Aportes de sócios</p>
+          <p className="text-lg font-serif font-semibold leading-tight">{brl(totais.aporte)}</p>
+        </Card>
+      </div>
+
+      <Card className="mb-4 p-3 print:hidden">
         <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-1">
+            <Label className="text-[11px] text-muted-foreground">De</Label>
+            <div className="flex gap-1.5">
+              <Select value={mesInicio} onValueChange={setMesInicio}>
+                <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MESES.map((m, i) => (
+                    <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={anoInicio} onValueChange={setAnoInicio}>
+                <SelectTrigger className="h-8 w-[90px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {anosDisponiveis().map((a) => (
+                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-[11px] text-muted-foreground">Até</Label>
+            <div className="flex gap-1.5">
+              <Select value={mesFim} onValueChange={setMesFim}>
+                <SelectTrigger className="h-8 w-[120px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MESES.map((m, i) => (
+                    <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={anoFim} onValueChange={setAnoFim}>
+                <SelectTrigger className="h-8 w-[90px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {anosDisponiveis().map((a) => (
+                    <SelectItem key={a} value={String(a)}>{a}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           <div className="grid gap-1">
             <Label className="text-[11px] text-muted-foreground">Tipo</Label>
             <Select value={tipo || "todos"} onValueChange={(v) => setTipo(v === "todos" ? "" : (v as Tipo))}>
-              <SelectTrigger className="h-8 w-[160px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Tudo</SelectItem>
-                <SelectItem value="receita">Só a receber</SelectItem>
-                <SelectItem value="despesa">Só a pagar</SelectItem>
+                <SelectItem value="receita">Só receitas</SelectItem>
+                <SelectItem value="despesa">Só despesas</SelectItem>
+                <SelectItem value="aporte">Só aportes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-[11px] text-muted-foreground">Situação</Label>
+            <Select value={situacao || "todas"} onValueChange={(v) => setSituacao(v === "todas" ? "" : (v as Situacao))}>
+              <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas</SelectItem>
+                <SelectItem value="aberto">Em aberto</SelectItem>
+                <SelectItem value="pago">Baixadas</SelectItem>
+                <SelectItem value="cancelado">Canceladas</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -123,101 +243,75 @@ export default function Relatorio() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
-            <Label className="text-[11px] text-muted-foreground">Vencimento de</Label>
-            <DateInput value={vencimentoDe} onChange={setVencimentoDe} className="h-8 w-[150px]" />
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-[11px] text-muted-foreground">até</Label>
-            <DateInput value={vencimentoAte} onChange={setVencimentoAte} className="h-8 w-[150px]" />
-          </div>
-          {filtroAtivo && (
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => { setVencimentoDe(""); setVencimentoAte(""); }}>
-              Limpar filtro
-            </Button>
-          )}
         </div>
       </Card>
 
       {isLoading ? (
         <SkeletonList />
       ) : !grupos.length ? (
-        <EmptyState title="Nada por aqui" subtitle="Cadastre contas em Contas a Pagar ou Contas a Receber para elas aparecerem aqui mês a mês." />
+        <EmptyState title="Nada por aqui" subtitle="Cadastre contas em Contas a Pagar, Contas a Receber ou Aportes para elas aparecerem aqui mês a mês." />
       ) : (
-        <>
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <Card className="px-4 py-2.5">
-              <p className="text-[11px] text-muted-foreground">Total a pagar (em aberto)</p>
-              <p className="text-lg font-serif font-semibold leading-tight">{brl(totalAPagar)}</p>
-            </Card>
-            <Card className="px-4 py-2.5">
-              <p className="text-[11px] text-muted-foreground">Total a receber (em aberto)</p>
-              <p className="text-lg font-serif font-semibold text-primary leading-tight">{brl(totalAReceber)}</p>
-            </Card>
-          </div>
+        <div className="space-y-3">
+          {grupos.map((g) => (
+            <Card key={g.competencia} className="overflow-hidden py-0">
+              <div className="px-3 py-1.5 bg-secondary/50 border-b border-border">
+                <span className="text-sm font-serif font-semibold capitalize">{formatCompetencia(g.competencia)}</span>
+              </div>
 
-          <div className="space-y-3">
-            {grupos.map((g) => (
-              <Card key={g.competencia} className="overflow-hidden py-0">
-                <div className="px-3 py-1.5 bg-secondary/50 border-b border-border">
-                  <span className="text-sm font-serif font-semibold capitalize">{formatCompetencia(g.competencia)}</span>
-                </div>
-
-                {g.abertos.map((c) => (
-                  <ChargeRow key={c.id} charge={c} nomeImovel={nomeImovel(c.propertyId)}>
-                    <button className="flex items-center gap-1.5 min-w-0 text-left" onClick={() => setBaixando(c)} title={c.grupo === "receita" ? "Marcar como recebido" : "Dar baixa"}>
-                      <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <RowLabel charge={c} nomeImovel={nomeImovel(c.propertyId)} />
-                    </button>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <ComprovanteControle charge={c} />
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => cancelar.mutate({ id: c.id })} title="Cancelar mês">
-                        <Ban className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </ChargeRow>
-                ))}
-
-                {g.pagos.length > 0 && (
-                  <div className={g.abertos.length > 0 ? "border-t border-border" : ""}>
-                    <p className="px-3 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-primary">Baixados</p>
-                    {g.pagos.map((c) => (
-                      <ChargeRow key={c.id} charge={c} nomeImovel={nomeImovel(c.propertyId)} tom="bg-primary/5">
-                        <button className="flex items-center gap-1.5 min-w-0 text-left" onClick={() => reabrir.mutate({ id: c.id })} title="Voltar para em aberto">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <RowLabel charge={c} nomeImovel={nomeImovel(c.propertyId)} pago />
-                        </button>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <ComprovanteControle charge={c} />
-                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary" onClick={() => reabrir.mutate({ id: c.id })} title="Reabrir">
-                            <RotateCcw className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </ChargeRow>
-                    ))}
+              {g.abertos.map((c) => (
+                <ChargeRow key={c.id}>
+                  <button className="flex items-center gap-1.5 min-w-0 text-left" onClick={() => setBaixando(c)} title={rotuloBaixa(c.grupo)}>
+                    <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <RowLabel charge={c} nomeImovel={nomeImovel(c.propertyId)} />
+                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <ComprovanteControle charge={c} />
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => cancelar.mutate({ id: c.id })} title="Cancelar mês">
+                      <Ban className="h-3 w-3" />
+                    </Button>
                   </div>
-                )}
+                </ChargeRow>
+              ))}
 
-                {g.cancelados.length > 0 && (
-                  <div className="border-t border-border">
-                    <p className="px-3 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Cancelados</p>
-                    {g.cancelados.map((c) => (
-                      <ChargeRow key={c.id} charge={c} nomeImovel={nomeImovel(c.propertyId)} tom="opacity-60">
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <Ban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <RowLabel charge={c} nomeImovel={nomeImovel(c.propertyId)} />
-                        </span>
+              {g.pagos.length > 0 && (
+                <div className={g.abertos.length > 0 ? "border-t border-border" : ""}>
+                  <p className="px-3 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-primary">Baixados</p>
+                  {g.pagos.map((c) => (
+                    <ChargeRow key={c.id} tom="bg-primary/5">
+                      <button className="flex items-center gap-1.5 min-w-0 text-left" onClick={() => reabrir.mutate({ id: c.id })} title="Voltar para em aberto">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <RowLabel charge={c} nomeImovel={nomeImovel(c.propertyId)} pago />
+                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <ComprovanteControle charge={c} />
                         <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary" onClick={() => reabrir.mutate({ id: c.id })} title="Reabrir">
                           <RotateCcw className="h-3 w-3" />
                         </Button>
-                      </ChargeRow>
-                    ))}
-                  </div>
-                )}
-              </Card>
-            ))}
-          </div>
-        </>
+                      </div>
+                    </ChargeRow>
+                  ))}
+                </div>
+              )}
+
+              {g.cancelados.length > 0 && (
+                <div className="border-t border-border">
+                  <p className="px-3 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Cancelados</p>
+                  {g.cancelados.map((c) => (
+                    <ChargeRow key={c.id} tom="opacity-60">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Ban className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <RowLabel charge={c} nomeImovel={nomeImovel(c.propertyId)} />
+                      </span>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary" onClick={() => reabrir.mutate({ id: c.id })} title="Reabrir">
+                        <RotateCcw className="h-3 w-3" />
+                      </Button>
+                    </ChargeRow>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
       )}
 
       <BaixaDialog charge={baixando} onOpenChange={(o) => !o && setBaixando(null)} />
@@ -226,7 +320,7 @@ export default function Relatorio() {
 }
 
 function RowLabel({ charge, nomeImovel, pago }: { charge: Charge; nomeImovel: string; pago?: boolean }) {
-  const entrada = charge.grupo === "receita";
+  const entrada = charge.grupo === "receita" || charge.grupo === "aporte_capital";
   return (
     <span className="min-w-0">
       <span className="font-medium truncate block">
@@ -241,18 +335,7 @@ function RowLabel({ charge, nomeImovel, pago }: { charge: Charge; nomeImovel: st
   );
 }
 
-function ChargeRow({
-  charge,
-  nomeImovel,
-  tom,
-  children,
-}: {
-  charge: Charge;
-  nomeImovel: string;
-  tom?: string;
-  children: React.ReactNode;
-}) {
-  void nomeImovel;
+function ChargeRow({ tom, children }: { tom?: string; children: React.ReactNode }) {
   return (
     <div className={`flex items-center justify-between gap-3 px-3 py-1.5 text-xs border-b border-border/60 last:border-0 ${tom ?? ""}`}>
       {children}
@@ -343,13 +426,13 @@ function BaixaDialog({ charge, onOpenChange }: { charge: Charge | null; onOpenCh
     pagar.mutate({ id: charge.id, valorPago: v, dataPagamento: data });
   };
 
-  const entrada = charge?.grupo === "receita";
+  const entrada = charge?.grupo === "receita" || charge?.grupo === "aporte_capital";
 
   return (
     <Dialog open={charge !== null} onOpenChange={(o) => !o && onOpenChange(false)}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-serif">{entrada ? "Marcar como recebido" : "Dar baixa"}</DialogTitle>
+          <DialogTitle className="font-serif">{charge ? rotuloBaixa(charge.grupo) : ""}</DialogTitle>
         </DialogHeader>
         {charge && (
           <div className="grid gap-3 py-2">
